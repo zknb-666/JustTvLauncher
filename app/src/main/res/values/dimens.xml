@@ -3,5 +3,6 @@
 
     <dimen name="card_width">160dp</dimen>
     <dimen name="card_height">90dp</dimen>
+    <dimen name="card_icon_size">60dp</dimen>
 
 </resources>
