@@ -1,0 +1,47 @@
+<resources>
+    <string name="app_name">纯·电视桌面</string>
+    <string name="title_favorites">收藏</string>
+    <string name="title_apps">应用</string>
+    <string name="title_system">系统应用</string>
+    <string name="title_tools">工具</string>
+    
+    <!-- AppInfo Activity/Fragment -->
+    <string name="app_info_title">应用信息</string>
+    <string name="app_info_version">版本: %1$s (%2$d)</string>
+    <string name="app_info_package">包名: %1$s</string>
+    <string name="app_info_install_date">安装日期: %1$s</string>
+    <string name="app_info_update_date">更新日期: %1$s</string>
+    <string name="app_info_system_app">系统应用</string>
+    
+    <!-- Actions -->
+    <string name="action_open_app">打开应用</string>
+    <string name="action_open_app_desc">启动该应用程序</string>
+    <string name="action_app_settings">应用设置</string>
+    <string name="action_app_settings_desc">查看应用设置和权限</string>
+    <string name="action_view_in_store">在应用商店查看</string>
+    <string name="action_view_in_store_desc">在应用商店打开该应用页面</string>
+    <string name="action_uninstall">卸载</string>
+    <string name="action_uninstall_desc">从设备中移除此应用</string>
+    <string name="action_favorite">添加到收藏</string>
+    <string name="action_unfavorite">从收藏移除</string>
+    <string name="action_favorite_desc">快速访问收藏的应用</string>
+    <string name="action_hide">隐藏应用</string>
+    <string name="action_unhide">取消隐藏应用</string>
+    <string name="action_hide_desc">从启动器中隐藏此应用</string>
+    
+    <!-- Messages -->
+    <string name="message_added_to_favorites">已添加到收藏</string>
+    <string name="message_removed_from_favorites">已从收藏移除</string>
+    <string name="message_app_hidden">应用已隐藏</string>
+    <string name="message_app_unhidden">应用已取消隐藏</string>
+    
+    <!-- Error Messages -->
+    <string name="error_package_name_missing">缺少包名</string>
+    <string name="error_app_not_found">未找到应用</string>
+    <string name="error_load_app_info">加载应用信息失败</string>
+    <string name="error_app_cannot_open">无法打开此应用</string>
+    <string name="error_open_settings">打开应用设置失败</string>
+    <string name="error_open_store">打开应用商店失败</string>
+    <string name="error_uninstall">卸载应用失败</string>
+    <string name="error_generic">发生错误</string>
+</resources>

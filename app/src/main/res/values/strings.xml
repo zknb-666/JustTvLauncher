@@ -1,5 +1,47 @@
 <resources>
     <string name="app_name">Just TV Launcher</string>
+    <string name="title_favorites">Favorites</string>
     <string name="title_apps">Apps</string>
     <string name="title_system">System</string>
+    <string name="title_tools">Tools</string>
+    
+    <!-- AppInfo Activity/Fragment -->
+    <string name="app_info_title">Application Information</string>
+    <string name="app_info_version">Version: %1$s (%2$d)</string>
+    <string name="app_info_package">Package: %1$s</string>
+    <string name="app_info_install_date">Installed: %1$s</string>
+    <string name="app_info_update_date">Updated: %1$s</string>
+    <string name="app_info_system_app">System Application</string>
+    
+    <!-- Actions -->
+    <string name="action_open_app">Open Application</string>
+    <string name="action_open_app_desc">Launch the application</string>
+    <string name="action_app_settings">Application Settings</string>
+    <string name="action_app_settings_desc">View application settings and permissions</string>
+    <string name="action_view_in_store">View in App Store</string>
+    <string name="action_view_in_store_desc">Open application page in the app store</string>
+    <string name="action_uninstall">Uninstall</string>
+    <string name="action_uninstall_desc">Remove this application from your device</string>
+    <string name="action_favorite">Add to Favorites</string>
+    <string name="action_unfavorite">Remove from Favorites</string>
+    <string name="action_favorite_desc">Quick access to favorite applications</string>
+    <string name="action_hide">Hide Application</string>
+    <string name="action_unhide">Unhide Application</string>
+    <string name="action_hide_desc">Hide this application from launcher</string>
+    
+    <!-- Messages -->
+    <string name="message_added_to_favorites">Added to favorites</string>
+    <string name="message_removed_from_favorites">Removed from favorites</string>
+    <string name="message_app_hidden">Application hidden</string>
+    <string name="message_app_unhidden">Application unhidden</string>
+    
+    <!-- Error Messages -->
+    <string name="error_package_name_missing">Package name is missing</string>
+    <string name="error_app_not_found">Application not found</string>
+    <string name="error_load_app_info">Failed to load application information</string>
+    <string name="error_app_cannot_open">Cannot open this application</string>
+    <string name="error_open_settings">Failed to open application settings</string>
+    <string name="error_open_store">Failed to open app store</string>
+    <string name="error_uninstall">Failed to uninstall application</string>
+    <string name="error_generic">An error occurred</string>
 </resources>
