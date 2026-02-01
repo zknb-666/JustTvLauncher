@@ -101,6 +101,20 @@ class LauncherActivity : FragmentActivity() {
         }
     }
     
+    /**
+     * 当Activity恢复时调用
+     * 
+     * 从设置或其他Activity返回后刷新应用列表
+     */
+    override fun onResume() {
+        super.onResume()
+        // 刷新应用列表，以显示取消隐藏的应用或其他更改
+        val fragment = supportFragmentManager.findFragmentById(R.id.browse_fragment)
+        if (fragment is BrowseFragment) {
+            fragment.refreshList()
+        }
+    }
+    
     companion object {
         private const val REQUEST_APP_INFO = 1001
     }
