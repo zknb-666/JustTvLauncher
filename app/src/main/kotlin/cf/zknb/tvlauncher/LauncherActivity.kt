@@ -1,11 +1,15 @@
 package cf.zknb.tvlauncher
 
+import android.content.Context
+import android.content.Intent
 import android.os.Bundle
 import android.util.Log
 import android.view.KeyEvent
 import android.widget.Toast
 import androidx.fragment.app.FragmentActivity
 import cf.zknb.tvlauncher.browse.BrowseFragment
+import cf.zknb.tvlauncher.tvinput.TvMonitorService
+import cf.zknb.tvlauncher.tvinput.TvInputSourceSwitcher
 
 /**
  * TV启动器应用的主启动Activity
@@ -24,6 +28,32 @@ class LauncherActivity : FragmentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_launcher)
+        
+        // 启动TV监控服务
+        startTvMonitorService()
+        
+        // 自动切换TV输入源（停止TV音频）
+        switchTvInputSource()
+    }
+    
+    /**
+     * 启动TV监控服务
+     */
+    private fun startTvMonitorService() {
+        try {
+            val serviceIntent = Intent(this, TvMonitorService::class.java)
+            startService(serviceIntent)
+            Log.d(TAG, "TV监控服务已启动")
+        } catch (e: Exception) {
+            Log.e(TAG, "启动TV监控服务失败", e)
+        }
+    }
+    
+    /**
+     * 切换TV输入源停止音频
+     */
+    private fun switchTvInputSource() {
+        TvInputSourceSwitcher.switchTvInputSource(this)
     }
 
     /**
@@ -116,6 +146,7 @@ class LauncherActivity : FragmentActivity() {
     }
     
     companion object {
+        private const val TAG = "LauncherActivity"
         private const val REQUEST_APP_INFO = 1001
     }
 }
