@@ -7,7 +7,7 @@ import androidx.leanback.widget.Presenter
 import cf.zknb.tvlauncher.R
 import cf.zknb.tvlauncher.databinding.PresenterShortcutCardBinding
 import cf.zknb.tvlauncher.model.Shortcut
-import cf.zknb.tvlauncher.utils.ColorExtractor
+import cf.zknb.tvlauncher.util.ColorExtractor
 
 class ShortcutCardPresenter : Presenter() {
     private var width = 320

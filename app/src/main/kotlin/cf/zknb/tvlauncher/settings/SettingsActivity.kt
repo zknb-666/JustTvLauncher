@@ -1,4 +1,4 @@
-package cf.zknb.tvlauncher
+package cf.zknb.tvlauncher.settings
 
 import android.os.Bundle
 import androidx.fragment.app.FragmentActivity

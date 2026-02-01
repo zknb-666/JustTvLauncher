@@ -45,7 +45,7 @@
             android:theme="@style/Theme.Leanback.GuidedStep" />
 
         <activity
-            android:name=".SettingsActivity"
+            android:name=".settings.SettingsActivity"
             android:exported="false"
             android:theme="@style/Theme.Leanback.GuidedStep" />
     </application>

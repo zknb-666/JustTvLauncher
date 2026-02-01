@@ -1,4 +1,4 @@
-package cf.zknb.tvlauncher
+package cf.zknb.tvlauncher.settings
 
 import android.app.WallpaperManager
 import android.content.ComponentName
@@ -9,6 +9,7 @@ import android.widget.Toast
 import androidx.leanback.app.GuidedStepSupportFragment
 import androidx.leanback.widget.GuidanceStylist
 import androidx.leanback.widget.GuidedAction
+import cf.zknb.tvlauncher.R
 
 /**
  * 壁纸设置Fragment

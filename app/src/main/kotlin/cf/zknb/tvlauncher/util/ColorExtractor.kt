@@ -1,4 +1,4 @@
-package cf.zknb.tvlauncher.utils
+package cf.zknb.tvlauncher.util
 
 import android.app.WallpaperManager
 import android.content.Context

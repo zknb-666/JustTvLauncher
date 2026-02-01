@@ -1,4 +1,4 @@
-package cf.zknb.tvlauncher
+package cf.zknb.tvlauncher.settings
 
 import android.content.Context
 import android.os.Bundle
@@ -7,6 +7,7 @@ import android.widget.Toast
 import androidx.leanback.app.GuidedStepSupportFragment
 import androidx.leanback.widget.GuidanceStylist
 import androidx.leanback.widget.GuidedAction
+import cf.zknb.tvlauncher.R
 import cf.zknb.tvlauncher.model.ProvinceData
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken

@@ -29,12 +29,12 @@ import androidx.leanback.app.BrowseSupportFragment
 import androidx.leanback.widget.ListRowPresenter
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.lifecycleScope
-import cf.zknb.tvlauncher.SettingsActivity
+import cf.zknb.tvlauncher.settings.SettingsActivity
 import cf.zknb.tvlauncher.model.Shortcut
 import cf.zknb.tvlauncher.model.Weather
 import cf.zknb.tvlauncher.repository.WeatherRepository
 import cf.zknb.tvlauncher.util.QWeatherIconsUtil
-import cf.zknb.tvlauncher.utils.ColorExtractor
+import cf.zknb.tvlauncher.util.ColorExtractor
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.*

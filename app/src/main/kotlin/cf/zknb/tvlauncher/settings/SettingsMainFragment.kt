@@ -1,10 +1,11 @@
-package cf.zknb.tvlauncher
+package cf.zknb.tvlauncher.settings
 
 import android.os.Bundle
 import android.util.Log
 import androidx.leanback.app.GuidedStepSupportFragment
 import androidx.leanback.widget.GuidanceStylist
 import androidx.leanback.widget.GuidedAction
+import cf.zknb.tvlauncher.R
 
 /**
  * 设置主界面Fragment
