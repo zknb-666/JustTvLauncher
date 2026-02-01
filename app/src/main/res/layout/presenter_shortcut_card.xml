@@ -12,8 +12,6 @@
         android:layout_height="@dimen/card_height"
         android:duplicateParentState="false"
         android:drawablePadding="4dp"
-        android:paddingLeft="12dp"
-        android:paddingRight="12dp"
         android:gravity="center_vertical"
         android:singleLine="false"
         android:ellipsize="marquee"

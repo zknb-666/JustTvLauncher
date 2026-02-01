@@ -28,12 +28,17 @@ class ShortcutCardPresenter : Presenter() {
         val binding = PresenterShortcutCardBinding.bind(viewHolder.view)
         
         if (shortcut.banner != null) {
-            // Banner 卡片不添加动态颜色，使用默认背景
+            // Banner 卡片：移除padding，使用background填充满整个卡片
+            binding.content.setPadding(0, 0, 0, 0)
+            binding.content.text = ""
             shortcut.banner.setBounds(0, 0, width, height)
-            binding.content.setCompoundDrawables(shortcut.banner, null, null, null)
-            binding.content.setBackgroundColor(Color.TRANSPARENT)
+            binding.content.background = shortcut.banner
             binding.root.contentDescription = shortcut.title
         } else if (shortcut.icon != null) {
+            // 图标卡片：恢复padding，使用CompoundDrawables
+            val paddingHorizontal = binding.content.context.resources.getDimensionPixelSize(R.dimen.card_padding_horizontal)
+            binding.content.setPadding(paddingHorizontal, 0, paddingHorizontal, 0)
+            
             // 从图标提取主色调作为卡片背景色
             val cardColor = ColorExtractor.extractColor(shortcut.icon)
             binding.content.setBackgroundColor(cardColor)
@@ -55,6 +60,7 @@ class ShortcutCardPresenter : Presenter() {
     override fun onUnbindViewHolder(viewHolder: ViewHolder) {
         val binding = PresenterShortcutCardBinding.bind(viewHolder.view)
         binding.content.setCompoundDrawables(null, null, null, null)
+        binding.content.background = null
         binding.content.setBackgroundColor(Color.TRANSPARENT)
     }
 }
