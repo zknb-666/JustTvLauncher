@@ -29,10 +29,12 @@ import androidx.leanback.app.BrowseSupportFragment
 import androidx.leanback.widget.ListRowPresenter
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.lifecycleScope
+import cf.zknb.tvlauncher.SettingsActivity
 import cf.zknb.tvlauncher.model.Shortcut
 import cf.zknb.tvlauncher.model.Weather
 import cf.zknb.tvlauncher.repository.WeatherRepository
 import cf.zknb.tvlauncher.util.QWeatherIconsUtil
+import cf.zknb.tvlauncher.utils.ColorExtractor
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.*
@@ -127,6 +129,42 @@ class BrowseFragment : BrowseSupportFragment() {
     private fun setTick() = handler.post {
         val timeStr = dateFormat.format(Date())
         title = timeStr
+        
+        // 根据壁纸颜色调整标题（时间）文字颜色
+        adjustTitleColor()
+    }
+    
+    /**
+     * 根据壁纸颜色调整标题文字颜色
+     */
+    private fun adjustTitleColor() {
+        try {
+            view?.let { rootView ->
+                // 查找标题文本视图
+                val titleView = rootView.findViewById<TextView?>(androidx.leanback.R.id.title_text)
+                if (titleView != null) {
+                    // 获取标题视图在屏幕上的位置
+                    val location = IntArray(2)
+                    titleView.getLocationOnScreen(location)
+                    val x = location[0] + titleView.width / 2
+                    val y = location[1] + titleView.height / 2
+                    
+                    // 从壁纸该位置提取颜色
+                    val bgColor = ColorExtractor.extractColorFromWallpaper(
+                        requireContext(),
+                        x, y,
+                        titleView.width,
+                        titleView.height
+                    )
+                    
+                    // 设置对比色
+                    val textColor = ColorExtractor.getContrastColor(bgColor)
+                    titleView.setTextColor(textColor)
+                }
+            }
+        } catch (e: Exception) {
+            Log.e("BrowseFragment", "Failed to adjust title color", e)
+        }
     }
     
     /**
@@ -153,7 +191,41 @@ class BrowseFragment : BrowseSupportFragment() {
                     SpannableString.SPAN_EXCLUSIVE_EXCLUSIVE
                 )
                 weatherInfoView?.text = infoText
+                
+                // 调整天气组件的颜色
+                adjustWeatherColor()
             }
+        }
+    }
+    
+    /**
+     * 根据壁纸颜色调整天气显示的文字颜色
+     */
+    private fun adjustWeatherColor() {
+        try {
+            weatherContainer?.let { container ->
+                // 获取天气容器在屏幕上的位置
+                val location = IntArray(2)
+                container.getLocationOnScreen(location)
+                val x = location[0] + container.width / 2
+                val y = location[1] + container.height / 2
+                
+                // 从壁纸该位置提取颜色
+                val bgColor = ColorExtractor.extractColorFromWallpaper(
+                    requireContext(),
+                    x, y,
+                    container.width,
+                    container.height
+                )
+                
+                // 设置对比色
+                val textColor = ColorExtractor.getContrastColor(bgColor)
+                weatherIconView?.setTextColor(textColor)
+                weatherCityView?.setTextColor(textColor)
+                weatherInfoView?.setTextColor(textColor)
+            }
+        } catch (e: Exception) {
+            Log.e("BrowseFragment", "Failed to adjust weather color", e)
         }
     }
     
@@ -181,11 +253,11 @@ class BrowseFragment : BrowseSupportFragment() {
     
     /**
      * 获取默认城市ID
-     * 可以从SharedPreferences读取用户设置，这里默认返回北京的adcode
+     * 从SharedPreferences读取用户设置的城市，默认返回北京
      */
     private fun getDefaultCityId(): String {
-        val prefs = requireContext().getSharedPreferences("weather_prefs", Context.MODE_PRIVATE)
-        return prefs.getString("city_id", "110100") ?: "110100" // 默认北京adcode
+        val prefs = requireContext().getSharedPreferences("weather_settings", Context.MODE_PRIVATE)
+        return prefs.getString("adcode", "110100") ?: "110100" // 默认北京adcode
     }
 
     /**
@@ -310,6 +382,11 @@ class BrowseFragment : BrowseSupportFragment() {
                             updateWeather()
                         }
                         
+                        // 延迟调整颜色，确保布局完成
+                        handler.postDelayed({
+                            adjustWeatherColor()
+                        }, 100)
+                        
                         Log.d("BrowseFragment", "Weather view added successfully")
                     }
                 }
@@ -345,9 +422,15 @@ class BrowseFragment : BrowseSupportFragment() {
                             // 背景透明，无背景
                             background = null
                             
-                            // 设置点击事件
+                            // 设置点击事件 - 启动设置界面
                             setOnClickListener {
-                                Toast.makeText(context, "设置功能开发中...", Toast.LENGTH_SHORT).show()
+                                try {
+                                    val intent = android.content.Intent(context, SettingsActivity::class.java)
+                                    startActivity(intent)
+                                } catch (e: Exception) {
+                                    Log.e("BrowseFragment", "Failed to open settings", e)
+                                    Toast.makeText(context, "打开设置失败", Toast.LENGTH_SHORT).show()
+                                }
                             }
                             
                             // 设置焦点变化监听（白色透明圆底+图标反色）
@@ -363,9 +446,9 @@ class BrowseFragment : BrowseSupportFragment() {
                                     setColorFilter(Color.BLACK, PorterDuff.Mode.SRC_IN)
                                     alpha = 1.0f
                                 } else {
-                                    // 无焦点时：透明背景，白色图标
+                                    // 无焦点时：根据壁纸颜色设置图标颜色
                                     background = null
-                                    setColorFilter(Color.WHITE, PorterDuff.Mode.SRC_IN)
+                                    updateSettingsIconColor()
                                     alpha = 0.7f
                                 }
                             }
@@ -384,12 +467,46 @@ class BrowseFragment : BrowseSupportFragment() {
                         // 将图标添加到标题栏
                         titleGroup.addView(settingsIcon, layoutParams)
                         
+                        // 延迟调整颜色，确保布局完成
+                        handler.postDelayed({
+                            updateSettingsIconColor()
+                        }, 100)
+                        
                         Log.d("BrowseFragment", "Settings icon added successfully")
                     }
                 }
             }, 500) // 延迟500ms确保UI已经准备好
         } catch (e: Exception) {
             Log.e("BrowseFragment", "Failed to setup settings icon", e)
+        }
+    }
+    
+    /**
+     * 根据壁纸颜色调整设置图标的颜色
+     */
+    private fun updateSettingsIconColor() {
+        try {
+            settingsIcon?.let { icon ->
+                // 获取图标在屏幕上的位置
+                val location = IntArray(2)
+                icon.getLocationOnScreen(location)
+                val x = location[0] + icon.width / 2
+                val y = location[1] + icon.height / 2
+                
+                // 从壁纸该位置提取颜色
+                val bgColor = ColorExtractor.extractColorFromWallpaper(
+                    requireContext(),
+                    x, y,
+                    icon.width * 2,
+                    icon.height * 2
+                )
+                
+                // 设置对比色
+                val iconColor = ColorExtractor.getContrastColor(bgColor)
+                icon.setColorFilter(iconColor, PorterDuff.Mode.SRC_IN)
+            }
+        } catch (e: Exception) {
+            Log.e("BrowseFragment", "Failed to adjust settings icon color", e)
         }
     }
     
@@ -405,6 +522,7 @@ class BrowseFragment : BrowseSupportFragment() {
         val context = requireContext()
         context.registerReceiver(timeTickReceiver, timeTickReceiver.getIntentFilter())
         context.registerReceiver(packageChangedReceiver, packageChangedReceiver.getIntentFilter())
+        context.registerReceiver(wallpaperChangedReceiver, wallpaperChangedReceiver.getIntentFilter())
     }
 
     /**
@@ -417,6 +535,7 @@ class BrowseFragment : BrowseSupportFragment() {
         val context = requireContext()
         context.unregisterReceiver(timeTickReceiver)
         context.unregisterReceiver(packageChangedReceiver)
+        context.unregisterReceiver(wallpaperChangedReceiver)
     }
 
     /**
@@ -475,6 +594,34 @@ class BrowseFragment : BrowseSupportFragment() {
             intentFilter.addAction(Intent.ACTION_PACKAGE_REPLACED)
             intentFilter.addDataScheme(SCHEME_PACKAGE)
             return intentFilter
+        }
+    }
+    
+    /**
+     * 壁纸变化事件的广播接收器
+     *
+     * 当壁纸改变时，更新UI组件的颜色
+     */
+    private val wallpaperChangedReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            if (Intent.ACTION_WALLPAPER_CHANGED == intent?.action) {
+                // 延迟更新，确保壁纸已经加载
+                handler.postDelayed({
+                    adjustTitleColor()
+                    adjustWeatherColor()
+                    updateSettingsIconColor()
+                    Log.d("BrowseFragment", "UI colors updated after wallpaper change")
+                }, 500)
+            }
+        }
+        
+        /**
+         * 获取此接收器的意图过滤器
+         *
+         * @return 配置为壁纸变化事件的IntentFilter
+         */
+        fun getIntentFilter(): IntentFilter {
+            return IntentFilter(Intent.ACTION_WALLPAPER_CHANGED)
         }
     }
 
