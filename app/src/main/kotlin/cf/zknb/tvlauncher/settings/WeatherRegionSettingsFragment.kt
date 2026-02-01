@@ -28,7 +28,9 @@ class WeatherRegionSettingsFragment : GuidedStepSupportFragment() {
         private const val PREFS_NAME = "weather_settings"
         private const val KEY_CITY_NAME = "city_name"
         private const val KEY_ADCODE = "adcode"
+        private const val KEY_USE_IP_LOCATION = "use_ip_location"
         private const val ACTION_AUTO_LOCATE = -1L
+        private const val ACTION_ENABLE_IP_LOCATE = -2L
     }
 
     private var provinceDataMap: Map<String, ProvinceData>? = null
@@ -72,6 +74,7 @@ class WeatherRegionSettingsFragment : GuidedStepSupportFragment() {
         val context = requireContext()
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         val currentAdcode = prefs.getString(KEY_ADCODE, "110100")
+        val useIpLocation = prefs.getBoolean(KEY_USE_IP_LOCATION, true) // 默认启用IP定位
         
         // 添加自动定位选项
         actions.add(
@@ -79,6 +82,15 @@ class WeatherRegionSettingsFragment : GuidedStepSupportFragment() {
                 .id(ACTION_AUTO_LOCATE)
                 .title("📍 自动定位")
                 .description("根据IP地址自动获取当前城市")
+                .build()
+        )
+        
+        // 添加启用/禁用IP定位选项
+        actions.add(
+            GuidedAction.Builder(context)
+                .id(ACTION_ENABLE_IP_LOCATE)
+                .title(if (useIpLocation) "✓ 自动使用IP定位" else "☐ 自动使用IP定位")
+                .description(if (useIpLocation) "应用启动时自动定位（已启用）" else "应用启动时自动定位（已禁用）")
                 .build()
         )
         
@@ -125,11 +137,41 @@ class WeatherRegionSettingsFragment : GuidedStepSupportFragment() {
     }
     
     override fun onGuidedActionClicked(action: GuidedAction) {
-        if (action.id == ACTION_AUTO_LOCATE) {
-            performAutoLocation()
-        } else {
-            super.onGuidedActionClicked(action)
+        when (action.id) {
+            ACTION_AUTO_LOCATE -> {
+                performAutoLocation()
+            }
+            ACTION_ENABLE_IP_LOCATE -> {
+                toggleIpLocation(action)
+            }
+            else -> {
+                super.onGuidedActionClicked(action)
+            }
         }
+    }
+    
+    /**
+     * 切换IP定位开关
+     */
+    private fun toggleIpLocation(action: GuidedAction) {
+        val prefs = requireContext().getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val currentState = prefs.getBoolean(KEY_USE_IP_LOCATION, true)
+        val newState = !currentState
+        
+        prefs.edit()
+            .putBoolean(KEY_USE_IP_LOCATION, newState)
+            .apply()
+        
+        // 更新action的显示
+        action.title = if (newState) "✓ 自动使用IP定位" else "☐ 自动使用IP定位"
+        action.description = if (newState) "应用启动时自动定位（已启用）" else "应用启动时自动定位（已禁用）"
+        notifyActionChanged(findActionPositionById(ACTION_ENABLE_IP_LOCATE))
+        
+        Toast.makeText(
+            requireContext(),
+            if (newState) "已启用自动IP定位" else "已禁用自动IP定位",
+            Toast.LENGTH_SHORT
+        ).show()
     }
     
     /**
@@ -170,11 +212,12 @@ class WeatherRegionSettingsFragment : GuidedStepSupportFragment() {
         val cityAdcode = action.id.toString()
         val cityName = action.title.toString()
         
-        // 保存选择
+        // 保存选择，并禁用IP定位（因为用户手动选择了城市）
         val prefs = requireContext().getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         prefs.edit()
             .putString(KEY_CITY_NAME, cityName)
             .putString(KEY_ADCODE, cityAdcode)
+            .putBoolean(KEY_USE_IP_LOCATION, false) // 手动选择城市后禁用IP定位
             .apply()
         
         Log.d(TAG, "Selected city: $cityName ($cityAdcode)")
