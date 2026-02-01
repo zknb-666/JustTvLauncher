@@ -5,6 +5,19 @@
     <string name="title_system">System</string>
     <string name="title_tools">Tools</string>
     
+    <!-- Tool Cards -->
+    <string name="tool_tv_input">TV Signal Source</string>
+    <string name="tool_tv_input_desc">Switch to TV signal input</string>
+    <string name="tool_tv_input_success">Switching to TV signal source</string>
+    <string name="tool_tv_input_failed">Failed to open TV signal source</string>
+    <string name="tool_tv_input_not_supported">Current device does not support this function</string>
+    
+    <string name="tool_memory_clean">Memory Cleaner</string>
+    <string name="tool_memory_clean_desc">Clean up background apps</string>
+    <string name="tool_memory_clean_success">Cleaned %1$s memory</string>
+    <string name="tool_memory_clean_cleaning">Cleaning memory...</string>
+    <string name="tool_memory_clean_no_effect">Memory already optimized</string>
+    
     <!-- AppInfo Activity/Fragment -->
     <string name="app_info_title">Application Information</string>
     <string name="app_info_version">Version: %1$s (%2$d)</string>
