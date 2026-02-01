@@ -50,6 +50,9 @@ dependencies {
     // Conscrypt for modern TLS support on older Android versions
     implementation("org.conscrypt:conscrypt-android:2.2.1") // 降低版本以兼容API 17
     
+    // Gson for JSON parsing
+    implementation("com.google.code.gson:gson:2.8.9")
+    
 //    testImplementation("junit:junit:4.13.2")
 //    androidTestImplementation("androidx.test.ext:junit:1.1.3")
 //    androidTestImplementation("androidx.test.espresso:espresso-core:3.4.0")
