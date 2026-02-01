@@ -3,7 +3,8 @@ package cf.zknb.tvlauncher.repository
 import android.content.Context
 import android.util.Log
 import com.google.gson.Gson
-import cf.zknb.tvlauncher.model.AreaData
+import com.google.gson.reflect.TypeToken
+import cf.zknb.tvlauncher.model.ProvinceData
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.lionsoul.ip2region.xdb.Searcher
@@ -50,7 +51,7 @@ class LocationRepository(private val context: Context) {
             
             // 创建 searcher，使用 VIndexCache 缓存策略
             Log.d(TAG, "初始化 ip2region searcher")
-            searcher = Searcher.newWithVectorIndex(Version.IPv4, xdbFile.absolutePath)
+            searcher = Searcher.newWithVectorIndex(Version.IPv4, xdbFile.absolutePath, null)
             Log.d(TAG, "ip2region searcher 初始化成功")
         } catch (e: Exception) {
             Log.e(TAG, "初始化 ip2region searcher 失败", e)
@@ -149,7 +150,8 @@ class LocationRepository(private val context: Context) {
             reader.close()
             
             val gson = Gson()
-            val areaData = gson.fromJson(jsonString, AreaData::class.java)
+            val type = object : TypeToken<Map<String, ProvinceData>>() {}.type
+            val areaData: Map<String, ProvinceData> = gson.fromJson(jsonString, type)
             
             // 清理输入的城市和省份名称
             val cleanCity = cityName.replace("市", "").replace("区", "").replace("县", "").trim()
@@ -160,23 +162,23 @@ class LocationRepository(private val context: Context) {
             
             // 遍历所有省份
             for ((_, provinceData) in areaData) {
-                val dataProvinceName = provinceData.province_name.replace("省", "").replace("市", "")
+                val dataProvinceName = provinceData.provinceName.replace("省", "").replace("市", "")
                     .replace("自治区", "").replace("特别行政区", "").replace("壮族", "")
                     .replace("回族", "").replace("维吾尔", "").trim()
                 
                 // 匹配省份
-                if (cleanProvince.contains(dataProvinceName) || dataProvinceName.contains(cleanProvince)) {
-                    Log.d(TAG, "找到匹配省份: ${provinceData.province_name}")
+                if (cleanProvince.contains(dataProvinceName as CharSequence) || dataProvinceName.contains(cleanProvince as CharSequence)) {
+                    Log.d(TAG, "找到匹配省份: ${provinceData.provinceName}")
                     
                     // 遍历该省份下的城市
-                    for ((_, cityData) in provinceData.city) {
-                        val dataCityName = cityData.city_name.replace("市", "").replace("区", "")
+                    for ((_, cityData) in provinceData.cities) {
+                        val dataCityName = cityData.cityName.replace("市", "").replace("区", "")
                             .replace("县", "").trim()
                         
                         // 匹配城市
-                        if (cleanCity.contains(dataCityName) || dataCityName.contains(cleanCity)) {
-                            Log.d(TAG, "找到匹配城市: ${cityData.city_name}, adcode=${cityData.city_adcode}")
-                            return@withContext cityData.city_adcode
+                        if (cleanCity.contains(dataCityName as CharSequence) || dataCityName.contains(cleanCity as CharSequence)) {
+                            Log.d(TAG, "找到匹配城市: ${cityData.cityName}, adcode=${cityData.cityAdcode}")
+                            return@withContext cityData.cityAdcode.toString()
                         }
                     }
                 }
