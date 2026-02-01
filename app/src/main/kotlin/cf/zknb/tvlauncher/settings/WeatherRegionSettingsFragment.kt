@@ -7,11 +7,14 @@ import android.widget.Toast
 import androidx.leanback.app.GuidedStepSupportFragment
 import androidx.leanback.widget.GuidanceStylist
 import androidx.leanback.widget.GuidedAction
+import androidx.lifecycle.lifecycleScope
 import cf.zknb.tvlauncher.R
 import cf.zknb.tvlauncher.model.ProvinceData
+import cf.zknb.tvlauncher.repository.LocationRepository
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import java.io.InputStreamReader
+import kotlinx.coroutines.launch
 
 /**
  * 天气地区设置Fragment
@@ -25,13 +28,16 @@ class WeatherRegionSettingsFragment : GuidedStepSupportFragment() {
         private const val PREFS_NAME = "weather_settings"
         private const val KEY_CITY_NAME = "city_name"
         private const val KEY_ADCODE = "adcode"
+        private const val ACTION_AUTO_LOCATE = -1L
     }
 
     private var provinceDataMap: Map<String, ProvinceData>? = null
+    private var locationRepository: LocationRepository? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         loadAreaData()
+        locationRepository = LocationRepository(requireContext())
     }
 
     /**
@@ -66,6 +72,15 @@ class WeatherRegionSettingsFragment : GuidedStepSupportFragment() {
         val context = requireContext()
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         val currentAdcode = prefs.getString(KEY_ADCODE, "110100")
+        
+        // 添加自动定位选项
+        actions.add(
+            GuidedAction.Builder(context)
+                .id(ACTION_AUTO_LOCATE)
+                .title("📍 自动定位")
+                .description("根据IP地址自动获取当前城市")
+                .build()
+        )
         
         // 如果数据还未加载，先加载
         if (provinceDataMap == null) {
@@ -107,6 +122,46 @@ class WeatherRegionSettingsFragment : GuidedStepSupportFragment() {
         }
         
         Log.d(TAG, "Created ${actions.size} province actions")
+    }
+    
+    override fun onGuidedActionClicked(action: GuidedAction) {
+        if (action.id == ACTION_AUTO_LOCATE) {
+            performAutoLocation()
+        } else {
+            super.onGuidedActionClicked(action)
+        }
+    }
+    
+    /**
+     * 执行自动定位
+     */
+    private fun performAutoLocation() {
+        Toast.makeText(requireContext(), "正在定位...", Toast.LENGTH_SHORT).show()
+        
+        lifecycleScope.launch {
+            try {
+                Log.d(TAG, "开始自动定位...")
+                val adcode = locationRepository?.autoLocate()
+                Log.d(TAG, "autoLocate() 返回adcode: $adcode")
+                if (adcode != null) {
+                    Log.d(TAG, "自动定位成功: adcode=$adcode")
+                    // 保存到SharedPreferences
+                    val prefs = requireContext().getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                    prefs.edit()
+                        .putString(KEY_ADCODE, adcode)
+                        .apply()
+                    Toast.makeText(requireContext(), "定位成功", Toast.LENGTH_SHORT).show()
+                    // 返回上一页
+                    finishGuidedStepSupportFragments()
+                } else {
+                    Log.w(TAG, "自动定位失败，未获取到adcode")
+                    Toast.makeText(requireContext(), "定位失败，请手动选择城市", Toast.LENGTH_LONG).show()
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Auto location error", e)
+                Toast.makeText(requireContext(), "定位出错：${e.message}", Toast.LENGTH_LONG).show()
+            }
+        }
     }
 
     override fun onSubGuidedActionClicked(action: GuidedAction): Boolean {
