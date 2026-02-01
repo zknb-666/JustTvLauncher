@@ -6,6 +6,10 @@
 
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.GET_TASKS" />
+    <uses-permission android:name="android.permission.REORDER_TASKS" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <uses-permission android:name="android.permission.KILL_BACKGROUND_PROCESSES" />
 
     <uses-feature
         android:name="android.software.leanback"
@@ -48,6 +52,22 @@
             android:name=".settings.SettingsActivity"
             android:exported="false"
             android:theme="@style/Theme.Leanback.GuidedStep" />
+        
+        <!-- TV输入源监控服务 -->
+        <service
+            android:name=".tvinput.TvMonitorService"
+            android:enabled="true"
+            android:exported="false" />
+        
+        <!-- 开机启动接收器 -->
+        <receiver
+            android:name=".tvinput.BootReceiver"
+            android:enabled="true"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+            </intent-filter>
+        </receiver>
     </application>
     <queries>
         <intent>
