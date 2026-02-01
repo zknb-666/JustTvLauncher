@@ -27,7 +27,7 @@ class AppInfoFragment : GuidedStepSupportFragment() {
         private const val ARG_APP_TITLE = "arg_app_title"
 
         /**
-         * 创建Fragment实例的工厂方�?
+         * 创建Fragment实例的工厂方法
          *
          * @param packageName 应用包名
          * @param appTitle 应用标题（可选）
@@ -51,7 +51,7 @@ class AppInfoFragment : GuidedStepSupportFragment() {
     private lateinit var prefsManager: AppPreferencesManager
 
     /**
-     * Fragment创建时调�?
+     * Fragment创建时调用
      *
      * 从arguments中获取应用信息并加载应用详情
      *
@@ -67,7 +67,7 @@ class AppInfoFragment : GuidedStepSupportFragment() {
             appTitle = it.getString(ARG_APP_TITLE)
         }
         
-        loadAppInfo()
+        // 注意：不在这里调用 loadAppInfo()，因为 onCreateActions() 会先执行
     }
 
     /**
@@ -94,8 +94,9 @@ class AppInfoFragment : GuidedStepSupportFragment() {
                 appTitle = pm.getApplicationLabel(applicationInfo).toString()
             }
             
-            // 判断是否为系统应�?
+            // 判断是否为系统应用
             isSystemApp = (applicationInfo.flags and ApplicationInfo.FLAG_SYSTEM) != 0
+            Log.d(TAG, "App loaded: $appTitle, isSystemApp=$isSystemApp, package=$packageName")
             
             // 构建应用描述信息
             val versionName = packageInfo.versionName ?: "Unknown"
@@ -163,9 +164,33 @@ class AppInfoFragment : GuidedStepSupportFragment() {
      */
     override fun onCreateActions(actions: MutableList<GuidedAction>, savedInstanceState: Bundle?) {
         try {
+            // 确保 prefsManager 已初始化（因为 onCreateActions 可能在 onCreate 完成前被调用）
+            if (!::prefsManager.isInitialized) {
+                prefsManager = AppPreferencesManager.getInstance(requireContext())
+            }
+            
+            // 确保已经从 arguments 中获取了 packageName
+            if (packageName == null) {
+                arguments?.let {
+                    packageName = it.getString(ARG_PACKAGE_NAME)
+                    appTitle = it.getString(ARG_APP_TITLE)
+                }
+            }
+            
+            // 在创建操作之前先加载应用信息，确保 isSystemApp 已经正确判断
+            // 使用 try-catch 确保即使加载失败也能继续创建基本操作
+            try {
+                loadAppInfo()
+            } catch (e: Exception) {
+                Log.e(TAG, "Error in loadAppInfo during onCreateActions", e)
+                // 即使失败也继续，使用默认值
+            }
+            
             val context = requireContext()
             val isFavorite = packageName?.let { prefsManager.isFavorite(it) } ?: false
             val isHidden = packageName?.let { prefsManager.isHidden(it) } ?: false
+            
+            Log.d(TAG, "onCreateActions: isSystemApp=$isSystemApp for package=$packageName")
             
             // 打开应用
             actions.add(
@@ -185,7 +210,7 @@ class AppInfoFragment : GuidedStepSupportFragment() {
                     .build()
             )
             
-            // 在应用商店查�?
+            // 在应用商店查看
             actions.add(
                 GuidedAction.Builder(context)
                     .id(AppInfoActivity.ACTION_ID_IN_STORE)
@@ -194,20 +219,19 @@ class AppInfoFragment : GuidedStepSupportFragment() {
                     .build()
             )
             
-            // 卸载应用（系统应用不显示此选项�?
-            //不可�?
-            if (isSystemApp)
+            // 卸载应用（系统应用不显示此选项）
                 actions.add(
                     GuidedAction.Builder(context)
                         .id(AppInfoActivity.ACTION_ID_UNINSTALL)
                         .title(R.string.action_uninstall)
                         .description(R.string.action_uninstall_desc)
+                        .enabled(!isSystemApp)
                         .build()
                 )
 
+
             
             // 收藏应用
-            //不可�?
             actions.add(
                 GuidedAction.Builder(context)
                     .id(AppInfoActivity.ACTION_ID_FAVORITE)
@@ -219,7 +243,6 @@ class AppInfoFragment : GuidedStepSupportFragment() {
             )
             
             // 隐藏应用
-            //不可�?
             actions.add(
                 GuidedAction.Builder(context)
                     .id(AppInfoActivity.ACTION_ID_HIDE)

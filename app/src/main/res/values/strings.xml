@@ -44,4 +44,26 @@
     <string name="error_open_store">Failed to open app store</string>
     <string name="error_uninstall">Failed to uninstall application</string>
     <string name="error_generic">An error occurred</string>
+
+    <!-- Settings -->
+    <string name="settings_title">Settings</string>
+    <string name="settings_wallpaper">Wallpaper</string>
+    <string name="settings_wallpaper_desc">Change desktop wallpaper</string>
+    <string name="settings_weather_region">Weather Region</string>
+    <string name="settings_weather_region_desc">Set your city for weather</string>
+    <string name="settings_hidden_apps">Hidden Applications</string>
+    <string name="settings_hidden_apps_desc">Manage hidden apps</string>
+    <string name="settings_icon">Settings Icon</string>
+    <string name="back">Back</string>
+    <string name="search_city">Search city</string>
+    <string name="hidden_apps_desc">Tap Unhide to show an app again</string>
+    <string name="unhide">Unhide</string>
+    <string name="app_icon">Application Icon</string>
+    <string name="wallpaper_open_picker">Choose Wallpaper</string>
+    <string name="wallpaper_open_picker_desc">Open system wallpaper picker</string>
+    <string name="wallpaper_open_button">Open Wallpaper Picker</string>
+    <string name="wallpaper_open_failed">Unable to open wallpaper picker</string>
+    <string name="hidden_app_unhidden">Application is visible</string>
+    <string name="weather_city_selected">Selected: %1$s</string>
+    <string name="hidden_apps_empty">No hidden applications</string>
 </resources>

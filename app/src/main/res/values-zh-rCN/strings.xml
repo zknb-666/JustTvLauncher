@@ -44,4 +44,26 @@
     <string name="error_open_store">打开应用商店失败</string>
     <string name="error_uninstall">卸载应用失败</string>
     <string name="error_generic">发生错误</string>
+
+    <!-- 设置 -->
+    <string name="settings_title">设置</string>
+    <string name="settings_wallpaper">壁纸设置</string>
+    <string name="settings_wallpaper_desc">更改桌面壁纸</string>
+    <string name="settings_weather_region">天气地区</string>
+    <string name="settings_weather_region_desc">设置天气显示城市</string>
+    <string name="settings_hidden_apps">隐藏应用</string>
+    <string name="settings_hidden_apps_desc">管理隐藏应用</string>
+    <string name="settings_icon">设置图标</string>
+    <string name="back">返回</string>
+    <string name="search_city">搜索城市</string>
+    <string name="hidden_apps_desc">点击取消隐藏以再次显示应用</string>
+    <string name="unhide">取消隐藏</string>
+    <string name="app_icon">应用图标</string>
+    <string name="wallpaper_open_picker">选择壁纸</string>
+    <string name="wallpaper_open_picker_desc">打开系统壁纸选择器</string>
+    <string name="wallpaper_open_button">打开壁纸选择器</string>
+    <string name="wallpaper_open_failed">无法打开壁纸选择器</string>
+    <string name="hidden_app_unhidden">应用已显示</string>
+    <string name="weather_city_selected">已选择：%1$s</string>
+    <string name="hidden_apps_empty">暂无隐藏应用</string>
 </resources>

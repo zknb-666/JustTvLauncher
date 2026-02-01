@@ -62,13 +62,8 @@ class AppInfoActivity : FragmentActivity() {
                 return
             }
             
-            // 首次创建时添加Fragment
-            if (savedInstanceState == null) {
-                val fragment = AppInfoFragment.newInstance(packageName!!, appTitle)
-                supportFragmentManager.beginTransaction()
-                    .replace(R.id.app_info_fragment_container, fragment)
-                    .commit()
-            }
+            // 每次都强制重建Fragment，不检查savedInstanceState
+            loadFragment()
             
             Log.d(TAG, "AppInfoActivity created for package: $packageName")
         } catch (e: Exception) {
@@ -76,6 +71,25 @@ class AppInfoActivity : FragmentActivity() {
             Toast.makeText(this, R.string.error_generic, Toast.LENGTH_SHORT).show()
             finish()
         }
+    }
+
+    /**
+     * 加载Fragment
+     * 强制重新创建以确保状态正确
+     */
+    private fun loadFragment() {
+        // 移除所有旧的Fragment
+        supportFragmentManager.findFragmentById(R.id.app_info_fragment_container)?.let {
+            supportFragmentManager.beginTransaction()
+                .remove(it)
+                .commitNow()
+        }
+        
+        // 创建并添加新的Fragment
+        val fragment = AppInfoFragment.newInstance(packageName!!, appTitle)
+        supportFragmentManager.beginTransaction()
+            .replace(R.id.app_info_fragment_container, fragment)
+            .commitNow()
     }
 
     /**

@@ -40,6 +40,8 @@
         <activity
             android:name=".AppInfoActivity"
             android:exported="false"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
             android:theme="@style/Theme.Leanback.GuidedStep" />
     </application>
     <queries>

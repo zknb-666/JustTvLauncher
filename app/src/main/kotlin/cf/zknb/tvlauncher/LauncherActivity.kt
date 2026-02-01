@@ -72,6 +72,9 @@ class LauncherActivity : FragmentActivity() {
             val intent = android.content.Intent(this, AppInfoActivity::class.java).apply {
                 putExtra(AppInfoActivity.EXTRA_PACKAGE_NAME, packageName)
                 putExtra(AppInfoActivity.EXTRA_APP_TITLE, appTitle)
+                // 确保每次都创建新的Activity实例
+                addFlags(android.content.Intent.FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS)
+                addFlags(android.content.Intent.FLAG_ACTIVITY_NO_HISTORY)
             }
             startActivityForResult(intent, REQUEST_APP_INFO)
             // 添加进入动画
