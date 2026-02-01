@@ -1,7 +1,9 @@
 package cf.zknb.tvlauncher.browse
 
 import android.app.Application
+import android.graphics.drawable.ColorDrawable
 import android.util.Log
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.MutableLiveData
 import cf.zknb.tvlauncher.R
@@ -9,6 +11,7 @@ import cf.zknb.tvlauncher.model.Shortcut
 import cf.zknb.tvlauncher.model.ShortcutGroup
 import cf.zknb.tvlauncher.repository.AppPreferencesManager
 import cf.zknb.tvlauncher.repository.ShortcutRepository
+import cf.zknb.tvlauncher.tvinput.TvSourceController
 
 /**
  * 浏览界面的ViewModel
@@ -21,6 +24,14 @@ import cf.zknb.tvlauncher.repository.ShortcutRepository
 class BrowseViewModel(application: Application) : AndroidViewModel(application) {
     private val shortcutRepository = ShortcutRepository(application)
     private val prefsManager = AppPreferencesManager.getInstance(application)
+    
+    companion object {
+        private const val TAG = "BrowseViewModel"
+        
+        // 工具卡片ID
+        const val TOOL_TV_INPUT = "tool.tv_input"
+        const val TOOL_MEMORY_CLEAN = "tool.memory_clean"
+    }
     
     /**
      * 包含快捷方式组列表的LiveData，按分类组织并按打开次数排序
@@ -81,6 +92,19 @@ class BrowseViewModel(application: Application) : AndroidViewModel(application) 
             }
         }
         
+        // 在工具组中添加工具卡片（TV信号源等）
+        val toolShortcuts = createToolShortcuts()
+        if (toolShortcuts.isNotEmpty()) {
+            if (shortcutGroupByCategory.containsKey(titleTools)) {
+                // 将工具卡片添加到现有工具组的开头
+                shortcutGroupByCategory[titleTools]!!.shortcutList.addAll(0, toolShortcuts)
+            } else {
+                // 创建新的工具组
+                val toolGroup = ShortcutGroup(titleTools, toolShortcuts)
+                shortcutGroupByCategory[titleTools] = toolGroup
+            }
+        }
+        
         // 按指定顺序排列分类：收藏、应用、系统应用、工具
         val orderedList = mutableListOf<ShortcutGroup>()
         
@@ -103,6 +127,43 @@ class BrowseViewModel(application: Application) : AndroidViewModel(application) 
         orderedList.addAll(remainingGroups)
         
         browseContent.postValue(orderedList)
+    }
+    
+    /**
+     * 创建工具快捷方式列表
+     */
+    private fun createToolShortcuts(): MutableList<Shortcut> {
+        val context = getApplication<Application>()
+        val toolShortcuts = mutableListOf<Shortcut>()
+        val titleTools = context.getString(R.string.title_tools)
+        
+        // TV信号源工具卡片 - 仅在设备支持时添加
+        if (TvSourceController.isDeviceSupported(context)) {
+            val tvInputIcon = ContextCompat.getDrawable(context, R.drawable.ic_tvinput)
+            val tvInputShortcut = Shortcut(
+                TOOL_TV_INPUT,
+                context.getString(R.string.tool_tv_input),
+                tvInputIcon,
+                null
+            ).apply {
+                category = titleTools
+            }
+            toolShortcuts.add(tvInputShortcut)
+        }
+        
+        // 内存清理工具卡片
+        val memoryCleanIcon = ContextCompat.getDrawable(context, R.drawable.ic_cleaner)
+        val memoryCleanShortcut = Shortcut(
+            TOOL_MEMORY_CLEAN,
+            context.getString(R.string.tool_memory_clean),
+            memoryCleanIcon,
+            null
+        ).apply {
+            category = titleTools
+        }
+        toolShortcuts.add(memoryCleanShortcut)
+        
+        return toolShortcuts
     }
 
     /**
@@ -139,9 +200,5 @@ class BrowseViewModel(application: Application) : AndroidViewModel(application) 
     fun removePackage(packageName: String) {
         shortcutRepository.deleteById(packageName)
         loadShortcutGroupList() // 刷新快捷方式组以反映移除操作
-    }
-
-    companion object {
-        private const val TAG = "BrowseViewModel"
     }
 }
