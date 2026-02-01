@@ -1,11 +1,11 @@
-package crazyboyfeng.justTvLauncher.browse
+package cf.zknb.tvlauncher.browse
 
 import android.util.Log
 import androidx.leanback.widget.ArrayObjectAdapter
 import androidx.leanback.widget.HeaderItem
 import androidx.leanback.widget.ListRow
 import androidx.leanback.widget.ListRowPresenter
-import crazyboyfeng.justTvLauncher.model.ShortcutGroup
+import cf.zknb.tvlauncher.model.ShortcutGroup
 
 class BrowseAdapter(shortcutGroupList: List<ShortcutGroup>) :
     ArrayObjectAdapter(ListRowPresenter()) {

@@ -1,7 +1,7 @@
-package crazyboyfeng.justTvLauncher.repository
+package cf.zknb.tvlauncher.repository
 
 import android.content.Context
-import crazyboyfeng.kotlin.SingletonHolder
+import cf.zknb.tvlauncher.util.SingletonHolder
 
 class OpenCountRepository private constructor(context: Context) {
     companion object : SingletonHolder<OpenCountRepository, Context>(::OpenCountRepository)

@@ -11,7 +11,7 @@ android {
      */
     compileSdk = 32
     defaultConfig {
-        applicationId = "crazyboyfeng.justTvLauncher"
+        applicationId = "cf.zknb.tvlauncher"
         minSdk = 17
         targetSdk = 32
         versionCode = 20210913
@@ -41,6 +41,15 @@ dependencies {
 //    implementation("com.google.android.material:material:1.4.0")
 //    implementation("androidx.constraintlayout:constraintlayout:2.1.0")
     implementation("androidx.leanback:leanback:1.0.0")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.5.2")
+    implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.3.1")
+    
+    // OkHttp for modern HTTP/HTTPS support
+    implementation("com.squareup.okhttp3:okhttp:3.12.13") // 兼容Android 4.2的最后版本
+    
+    // Conscrypt for modern TLS support on older Android versions
+    implementation("org.conscrypt:conscrypt-android:2.2.1") // 降低版本以兼容API 17
+    
 //    testImplementation("junit:junit:4.13.2")
 //    androidTestImplementation("androidx.test.ext:junit:1.1.3")
 //    androidTestImplementation("androidx.test.espresso:espresso-core:3.4.0")

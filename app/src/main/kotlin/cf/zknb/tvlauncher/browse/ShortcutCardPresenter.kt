@@ -1,19 +1,21 @@
-package crazyboyfeng.justTvLauncher.browse
+package cf.zknb.tvlauncher.browse
 
 import android.view.LayoutInflater
 import android.view.ViewGroup
 import androidx.leanback.widget.Presenter
-import crazyboyfeng.justTvLauncher.R
-import crazyboyfeng.justTvLauncher.databinding.PresenterShortcutCardBinding
-import crazyboyfeng.justTvLauncher.model.Shortcut
+import cf.zknb.tvlauncher.R
+import cf.zknb.tvlauncher.databinding.PresenterShortcutCardBinding
+import cf.zknb.tvlauncher.model.Shortcut
 
 class ShortcutCardPresenter : Presenter() {
     private var width = 320
     private var height = 180
+    private var iconSize = 60
     override fun onCreateViewHolder(parent: ViewGroup): ViewHolder {
         val context = parent.context
         width = context.resources.getDimension(R.dimen.card_width).toInt()
         height = context.resources.getDimension(R.dimen.card_height).toInt()
+        iconSize = context.resources.getDimension(R.dimen.card_icon_size).toInt()
         val layoutInflater = LayoutInflater.from(context)
         val cardView = layoutInflater.inflate(R.layout.presenter_shortcut_card, parent, false)
         return ViewHolder(cardView)
@@ -27,7 +29,7 @@ class ShortcutCardPresenter : Presenter() {
             binding.content.setCompoundDrawables(shortcut.banner, null, null, null)
             binding.root.contentDescription = shortcut.title
         } else if (shortcut.icon != null) {
-            shortcut.icon.setBounds(0, 0, height, height)
+            shortcut.icon.setBounds(0, 0, iconSize, iconSize)
             binding.content.setCompoundDrawables(shortcut.icon, null, null, null)
             binding.content.text = shortcut.title
         }

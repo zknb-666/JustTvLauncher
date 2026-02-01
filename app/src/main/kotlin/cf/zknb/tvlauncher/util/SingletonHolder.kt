@@ -1,4 +1,4 @@
-package crazyboyfeng.kotlin
+package cf.zknb.tvlauncher.util
 
 open class SingletonHolder<out T, in A>(creator: (A) -> T) {
 

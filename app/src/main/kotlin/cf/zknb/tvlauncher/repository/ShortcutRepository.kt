@@ -1,9 +1,9 @@
-package crazyboyfeng.justTvLauncher.repository
+package cf.zknb.tvlauncher.repository
 
 import android.content.Context
 import android.content.Intent
 import android.os.Build
-import crazyboyfeng.justTvLauncher.model.Shortcut
+import cf.zknb.tvlauncher.model.Shortcut
 
 class ShortcutRepository(private val context: Context) {
     // Contain IO operations.
