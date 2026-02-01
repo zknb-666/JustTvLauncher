@@ -25,7 +25,8 @@ class LocationRepository(private val context: Context) {
     companion object {
         private const val TAG = "LocationRepository"
         private const val XDB_FILE_NAME = "ip2region_v4.xdb"
-        private const val IP_CHECK_URL = "https://api.ipify.org?format=text"
+        // 使用国内HTTP API，兼容Android 4.2（无需TLS 1.2+）
+        private const val IP_CHECK_URL = "http://myip.ipip.net"
         private const val TIMEOUT = 5000
     }
 
@@ -70,11 +71,17 @@ class LocationRepository(private val context: Context) {
             connection.requestMethod = "GET"
             connection.connectTimeout = TIMEOUT
             connection.readTimeout = TIMEOUT
+            connection.setRequestProperty("User-Agent", "Mozilla/5.0")
             
             val responseCode = connection.responseCode
             if (responseCode == HttpURLConnection.HTTP_OK) {
-                val ip = connection.inputStream.bufferedReader().readText().trim()
-                Log.d(TAG, "当前公网IP: $ip")
+                val response = connection.inputStream.bufferedReader().readText().trim()
+                // myip.ipip.net 返回格式: "当前 IP：1.2.3.4 来自于：中国 广东 深圳"
+                // 提取IP地址
+                val ipPattern = "\\d+\\.\\d+\\.\\d+\\.\\d+".toRegex()
+                val ip = ipPattern.find(response)?.value
+                Log.d(TAG, "当前公网IP: $ip (原始响应: $response)")
+                connection.disconnect()
                 return@withContext ip
             }
             connection.disconnect()
