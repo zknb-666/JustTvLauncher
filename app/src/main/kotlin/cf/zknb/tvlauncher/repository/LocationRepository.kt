@@ -6,11 +6,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
-import org.conscrypt.Conscrypt
 import org.json.JSONObject
 import java.io.BufferedReader
 import java.io.InputStreamReader
-import java.security.Security
 import java.util.concurrent.TimeUnit
 
 /**
@@ -25,16 +23,6 @@ class LocationRepository(private val context: Context) {
         // 使用 myip.ipip.net API
         private const val IP_API_URL = "https://myip.ipip.net/"
         private const val TIMEOUT = 5000L
-        
-        // 初始化 Conscrypt 以支持 Android 4.2+ 的 TLS 1.2
-        init {
-            try {
-                Security.insertProviderAt(Conscrypt.newProvider(), 1)
-                Log.d(TAG, "Conscrypt TLS provider initialized")
-            } catch (e: Exception) {
-                Log.e(TAG, "Failed to initialize Conscrypt", e)
-            }
-        }
     }
     
     // 创建支持 TLS 1.2 的 OkHttpClient

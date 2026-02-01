@@ -47,9 +47,6 @@ dependencies {
     // OkHttp for modern HTTP/HTTPS support
     implementation("com.squareup.okhttp3:okhttp:3.12.13") // 兼容Android 4.2的最后版本
     
-    // Conscrypt for modern TLS support on older Android versions
-    implementation("org.conscrypt:conscrypt-android:2.2.1") // 降低版本以兼容API 17
-    
     // Gson for JSON parsing
     implementation("com.google.code.gson:gson:2.8.9")
     
