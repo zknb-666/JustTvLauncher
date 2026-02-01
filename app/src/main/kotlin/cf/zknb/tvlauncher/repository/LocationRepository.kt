@@ -2,94 +2,48 @@ package cf.zknb.tvlauncher.repository
 
 import android.content.Context
 import android.util.Log
-import com.google.gson.Gson
-import com.google.gson.reflect.TypeToken
-import cf.zknb.tvlauncher.model.ProvinceData
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import org.lionsoul.ip2region.xdb.Searcher
-import org.lionsoul.ip2region.xdb.Version
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import org.conscrypt.Conscrypt
+import org.json.JSONObject
 import java.io.BufferedReader
-import java.io.File
 import java.io.InputStreamReader
-import java.net.HttpURLConnection
-import java.net.URL
+import java.security.Security
+import java.util.concurrent.TimeUnit
 
 /**
  * IP定位仓库
  * 
- * 使用 ip2region 离线 IP 库进行高性能定位
+ * 通过IP地址获取用户所在城市信息
  */
 class LocationRepository(private val context: Context) {
 
     companion object {
         private const val TAG = "LocationRepository"
-        private const val XDB_FILE_NAME = "ip2region_v4.xdb"
-        // 使用国内HTTP API，兼容Android 4.2（无需TLS 1.2+）
-        private const val IP_CHECK_URL = "http://myip.ipip.net"
-        private const val TIMEOUT = 5000
-    }
-
-    private var searcher: Searcher? = null
-
-    /**
-     * 初始化 ip2region searcher
-     */
-    private suspend fun initSearcher() = withContext(Dispatchers.IO) {
-        if (searcher != null) return@withContext
+        // 使用 myip.ipip.net API
+        private const val IP_API_URL = "https://myip.ipip.net/"
+        private const val TIMEOUT = 5000L
         
-        try {
-            // 从 assets 复制 xdb 文件到内部存储
-            val xdbFile = File(context.filesDir, XDB_FILE_NAME)
-            if (!xdbFile.exists()) {
-                Log.d(TAG, "复制xdb文件到内部存储")
-                context.assets.open(XDB_FILE_NAME).use { input ->
-                    xdbFile.outputStream().use { output ->
-                        input.copyTo(output)
-                    }
-                }
+        // 初始化 Conscrypt 以支持 Android 4.2+ 的 TLS 1.2
+        init {
+            try {
+                Security.insertProviderAt(Conscrypt.newProvider(), 1)
+                Log.d(TAG, "Conscrypt TLS provider initialized")
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to initialize Conscrypt", e)
             }
-            
-            // 创建 searcher，使用 VIndexCache 缓存策略
-            Log.d(TAG, "初始化 ip2region searcher")
-            searcher = Searcher.newWithVectorIndex(Version.IPv4, xdbFile.absolutePath, null)
-            Log.d(TAG, "ip2region searcher 初始化成功")
-        } catch (e: Exception) {
-            Log.e(TAG, "初始化 ip2region searcher 失败", e)
-            throw e
         }
     }
-
-    /**
-     * 获取当前公网IP地址
-     */
-    private suspend fun getCurrentIp(): String? = withContext(Dispatchers.IO) {
-        try {
-            Log.d(TAG, "获取当前公网IP")
-            val url = URL(IP_CHECK_URL)
-            val connection = url.openConnection() as HttpURLConnection
-            connection.requestMethod = "GET"
-            connection.connectTimeout = TIMEOUT
-            connection.readTimeout = TIMEOUT
-            connection.setRequestProperty("User-Agent", "Mozilla/5.0")
-            
-            val responseCode = connection.responseCode
-            if (responseCode == HttpURLConnection.HTTP_OK) {
-                val response = connection.inputStream.bufferedReader().readText().trim()
-                // myip.ipip.net 返回格式: "当前 IP：1.2.3.4 来自于：中国 广东 深圳"
-                // 提取IP地址
-                val ipPattern = "\\d+\\.\\d+\\.\\d+\\.\\d+".toRegex()
-                val ip = ipPattern.find(response)?.value
-                Log.d(TAG, "当前公网IP: $ip (原始响应: $response)")
-                connection.disconnect()
-                return@withContext ip
-            }
-            connection.disconnect()
-            null
-        } catch (e: Exception) {
-            Log.e(TAG, "获取公网IP失败", e)
-            null
-        }
+    
+    // 创建支持 TLS 1.2 的 OkHttpClient
+    private val okHttpClient by lazy {
+        OkHttpClient.Builder()
+            .connectTimeout(TIMEOUT, TimeUnit.MILLISECONDS)
+            .readTimeout(TIMEOUT, TimeUnit.MILLISECONDS)
+            .writeTimeout(TIMEOUT, TimeUnit.MILLISECONDS)
+            .build()
     }
 
     /**
@@ -98,40 +52,47 @@ class LocationRepository(private val context: Context) {
      */
     suspend fun getCityByIp(): Pair<String, String>? = withContext(Dispatchers.IO) {
         try {
-            // 确保 searcher 已初始化
-            if (searcher == null) {
-                initSearcher()
-            }
+            Log.d(TAG, "请求IP定位API: $IP_API_URL")
             
-            // 获取当前公网IP
-            val currentIp = getCurrentIp()
-            if (currentIp == null) {
-                Log.w(TAG, "无法获取公网IP")
-                return@withContext null
-            }
+            val request = Request.Builder()
+                .url(IP_API_URL)
+                .header("User-Agent", "Mozilla/5.0")
+                .build()
             
-            // 使用 ip2region 查询 IP 归属地
-            Log.d(TAG, "查询IP归属地: $currentIp")
-            val region = searcher?.search(currentIp)
-            
-            if (region.isNullOrEmpty()) {
-                Log.w(TAG, "IP定位失败: 无法获取地区信息")
-                return@withContext null
-            }
-            
-            Log.d(TAG, "IP定位原始结果: $region")
-            // 解析结果格式: 国家|省份|城市|ISP|CN
-            val parts = region.split("|")
-            if (parts.size >= 3) {
-                val province = parts[1].trim()
-                val city = parts[2].trim()
-                Log.d(TAG, "IP定位成功: 省份=$province, 城市=$city")
-                if (city.isNotEmpty() && province.isNotEmpty()) {
-                    return@withContext Pair(city, province)
+            okHttpClient.newCall(request).execute().use { response ->
+                val responseCode = response.code()
+                Log.d(TAG, "IP定位API响应码: $responseCode")
+                
+                if (response.isSuccessful) {
+                    val responseBody = response.body()?.string()
+                    Log.d(TAG, "IP定位API响应内容: $responseBody")
+                    
+                    if (responseBody != null) {
+                        // myip.ipip.net 返回格式: "当前 IP：xxx.xxx.xxx.xxx  来自于：中国 湖南 永州  移动"
+                        // 支持中文冒号和英文冒号
+                        val locationPart = responseBody.split("来自于[：:]".toRegex()).getOrNull(1)?.trim()
+                        if (locationPart != null) {
+                            // 按空格分割，并过滤空字符串（处理多余空格）
+                            val parts = locationPart.split("\\s+".toRegex()).filter { it.isNotEmpty() }
+                            Log.d(TAG, "解析到的位置信息部分: $parts (size=${parts.size})")
+                            // 格式: [国家, 省份, 城市, 运营商(可选)]
+                            if (parts.size >= 3) {
+                                val country = parts[0]
+                                val province = parts[1]
+                                val city = parts[2]
+                                Log.d(TAG, "IP定位成功: 国家=$country, 省份=$province, 城市=$city")
+                                if (city.isNotEmpty() && province.isNotEmpty()) {
+                                    return@withContext Pair(city, province)
+                                }
+                            } else {
+                                Log.w(TAG, "位置信息部分数量不足: $parts")
+                            }
+                        } else {
+                            Log.w(TAG, "无法解析响应格式: $responseBody")
+                        }
+                    }
                 }
             }
-            
-            Log.w(TAG, "IP定位失败: 无法解析地区信息")
             null
         } catch (e: Exception) {
             Log.e(TAG, "IP定位失败", e)
@@ -149,49 +110,38 @@ class LocationRepository(private val context: Context) {
     suspend fun findAdcodeByCity(cityName: String, provinceName: String): String? = withContext(Dispatchers.IO) {
         try {
             Log.d(TAG, "查找adcode: cityName=$cityName, provinceName=$provinceName")
-            
-            // 读取并解析 JSON
             val inputStream = context.assets.open("all_area_with_adcode_key.json")
-            val reader = BufferedReader(InputStreamReader(inputStream, Charsets.UTF_8))
+            val reader = BufferedReader(InputStreamReader(inputStream))
             val jsonString = reader.readText()
             reader.close()
-            
-            val gson = Gson()
-            val type = object : TypeToken<Map<String, ProvinceData>>() {}.type
-            val areaData: Map<String, ProvinceData> = gson.fromJson(jsonString, type)
-            
-            // 清理输入的城市和省份名称
-            val cleanCity = cityName.replace("市", "").replace("区", "").replace("县", "").trim()
-            val cleanProvince = provinceName.replace("省", "").replace("市", "").replace("自治区", "")
-                .replace("特别行政区", "").replace("壮族", "").replace("回族", "").replace("维吾尔", "").trim()
-            
-            Log.d(TAG, "清理后: cleanCity=$cleanCity, cleanProvince=$cleanProvince")
-            
-            // 遍历所有省份
-            for ((_, provinceData) in areaData) {
-                val dataProvinceName = provinceData.provinceName.replace("省", "").replace("市", "")
-                    .replace("自治区", "").replace("特别行政区", "").replace("壮族", "")
-                    .replace("回族", "").replace("维吾尔", "").trim()
-                
-                // 匹配省份
-                if (cleanProvince.contains(dataProvinceName as CharSequence) || dataProvinceName.contains(cleanProvince as CharSequence)) {
-                    Log.d(TAG, "找到匹配省份: ${provinceData.provinceName}")
-                    
-                    // 遍历该省份下的城市
-                    for ((_, cityData) in provinceData.cities) {
-                        val dataCityName = cityData.cityName.replace("市", "").replace("区", "")
-                            .replace("县", "").trim()
-                        
-                        // 匹配城市
-                        if (cleanCity.contains(dataCityName as CharSequence) || dataCityName.contains(cleanCity as CharSequence)) {
-                            Log.d(TAG, "找到匹配城市: ${cityData.cityName}, adcode=${cityData.cityAdcode}")
-                            return@withContext cityData.cityAdcode.toString()
+            val json = JSONObject(jsonString as String)
+            val provinceKeys = json.keys()
+            while (provinceKeys.hasNext()) {
+                val provinceKey = provinceKeys.next()
+                val provinceObj = json.getJSONObject(provinceKey)
+                val provinceNameInData = provinceObj.getString("province_name")
+                if (provinceName.contains(provinceNameInData.replace("省", "").replace("市", "").replace("自治区", "").replace("特别行政区", ""), ignoreCase = false) ||
+                    provinceNameInData.contains(provinceName.replace("省", "").replace("市", "").replace("自治区", "").replace("特别行政区", ""), ignoreCase = false)) {
+                    val citiesObj = provinceObj.getJSONObject("city")
+                    val cityKeys = citiesObj.keys()
+                    while (cityKeys.hasNext()) {
+                        val cityKey = cityKeys.next()
+                        val cityObj = citiesObj.getJSONObject(cityKey)
+                        val cityNameInData = cityObj.getString("city_name")
+                        val cityAdcode = cityObj.getString("city_adcode")
+                        val cityNameSimplified = cityName.replace("市", "")
+                        val cityNameInDataSimplified = cityNameInData.replace("市", "")
+                        Log.d(TAG, "对比: $cityNameSimplified vs $cityNameInDataSimplified")
+                        if (cityNameSimplified == cityNameInDataSimplified ||
+                            cityNameInData.contains(cityNameSimplified, ignoreCase = false) ||
+                            cityNameSimplified.contains(cityNameInDataSimplified, ignoreCase = false)) {
+                            Log.d(TAG, "找到匹配城市: $cityNameInData (adcode: $cityAdcode)")
+                            return@withContext cityAdcode
                         }
                     }
                 }
             }
-            
-            Log.w(TAG, "未找到匹配的adcode")
+            Log.w(TAG, "未找到匹配的城市: $provinceName $cityName")
             null
         } catch (e: Exception) {
             Log.e(TAG, "查找adcode失败", e)
@@ -200,40 +150,18 @@ class LocationRepository(private val context: Context) {
     }
 
     /**
-     * 自动定位：获取IP位置并查找对应的adcode
-     * @return adcode 或 null
+     * 自动定位并获取城市adcode
+     * @return Pair<城市名称, adcode> 或 null
      */
-    suspend fun autoLocate(): String? {
-        Log.d(TAG, "开始自动定位")
+    suspend fun autoLocate(): Pair<String, String>? {
+        Log.d(TAG, "autoLocate() 开始...")
         val location = getCityByIp()
-        if (location == null) {
-            Log.w(TAG, "自动定位失败: 无法获取IP位置")
-            return null
-        }
-        
-        val (city, province) = location
-        Log.d(TAG, "IP定位成功: 城市=$city, 省份=$province")
-        
-        val adcode = findAdcodeByCity(city, province)
-        if (adcode == null) {
-            Log.w(TAG, "自动定位失败: 无法找到对应的adcode")
-        } else {
-            Log.d(TAG, "自动定位成功: adcode=$adcode")
-        }
-        
-        return adcode
-    }
-
-    /**
-     * 释放资源
-     */
-    fun close() {
-        try {
-            searcher?.close()
-            searcher = null
-            Log.d(TAG, "ip2region searcher 已关闭")
-        } catch (e: Exception) {
-            Log.e(TAG, "关闭 searcher 失败", e)
-        }
+        Log.d(TAG, "getCityByIp() 返回: $location")
+        if (location == null) return null
+        val (cityName, provinceName) = location
+        val adcode = findAdcodeByCity(cityName, provinceName)
+        Log.d(TAG, "findAdcodeByCity() 返回: $adcode")
+        if (adcode == null) return null
+        return Pair(cityName, adcode)
     }
 }

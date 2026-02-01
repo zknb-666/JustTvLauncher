@@ -141,20 +141,22 @@ class WeatherRegionSettingsFragment : GuidedStepSupportFragment() {
         lifecycleScope.launch {
             try {
                 Log.d(TAG, "开始自动定位...")
-                val adcode = locationRepository?.autoLocate()
-                Log.d(TAG, "autoLocate() 返回adcode: $adcode")
-                if (adcode != null) {
-                    Log.d(TAG, "自动定位成功: adcode=$adcode")
+                val result = locationRepository?.autoLocate()
+                Log.d(TAG, "autoLocate() 返回: $result")
+                if (result != null) {
+                    val (cityName, adcode) = result
+                    Log.d(TAG, "自动定位成功: cityName=$cityName, adcode=$adcode")
                     // 保存到SharedPreferences
                     val prefs = requireContext().getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
                     prefs.edit()
+                        .putString(KEY_CITY_NAME, cityName)
                         .putString(KEY_ADCODE, adcode)
                         .apply()
-                    Toast.makeText(requireContext(), "定位成功", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(requireContext(), "定位成功：$cityName", Toast.LENGTH_SHORT).show()
                     // 返回上一页
                     finishGuidedStepSupportFragments()
                 } else {
-                    Log.w(TAG, "自动定位失败，未获取到adcode")
+                    Log.w(TAG, "自动定位失败，未获取到城市和adcode")
                     Toast.makeText(requireContext(), "定位失败，请手动选择城市", Toast.LENGTH_LONG).show()
                 }
             } catch (e: Exception) {
