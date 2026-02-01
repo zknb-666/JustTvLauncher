@@ -30,12 +30,17 @@ import androidx.leanback.widget.ListRowPresenter
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.lifecycleScope
 import cf.zknb.tvlauncher.settings.SettingsActivity
+import cf.zknb.tvlauncher.tvinput.TvSourceController
+import cf.zknb.tvlauncher.cleaner.MemoryCleaner
 import cf.zknb.tvlauncher.model.Shortcut
 import cf.zknb.tvlauncher.model.Weather
 import cf.zknb.tvlauncher.repository.WeatherRepository
+import cf.zknb.tvlauncher.repository.LocationRepository
 import cf.zknb.tvlauncher.util.QWeatherIconsUtil
 import cf.zknb.tvlauncher.util.ColorExtractor
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -50,6 +55,7 @@ class BrowseFragment : BrowseSupportFragment() {
     private val dateFormat = SimpleDateFormat("HH:mm", Locale.getDefault())
     private lateinit var viewModel: BrowseViewModel
     private lateinit var weatherRepository: WeatherRepository
+    private lateinit var locationRepository: LocationRepository
     private var currentWeather: Weather? = null
     private var settingsIcon: ImageView? = null
     private var weatherContainer: LinearLayout? = null
@@ -78,6 +84,7 @@ class BrowseFragment : BrowseSupportFragment() {
         
         // 初始化天气仓库
         weatherRepository = WeatherRepository(requireContext())
+        locationRepository = LocationRepository(requireContext())
         
         // 初始化ViewModel
         val factory = ViewModelProvider.AndroidViewModelFactory.getInstance(requireActivity().application)
@@ -92,8 +99,14 @@ class BrowseFragment : BrowseSupportFragment() {
         setOnItemViewClickedListener { _, item, _, _ ->
             when (item) {
                 is Shortcut -> {
-                    launch(item.id)
-                    viewModel.incrementOpenCount(item)
+                    // 检查是否是功能卡片
+                    if (isFunctionCard(item.id)) {
+                        handleFunctionClick(item.id)
+                    } else {
+                        // 普通应用启动
+                        launch(item.id)
+                        viewModel.incrementOpenCount(item)
+                    }
                     setSelect(item)
                 }
             }
@@ -235,8 +248,40 @@ class BrowseFragment : BrowseSupportFragment() {
     private fun loadWeather() {
         lifecycleScope.launch {
             try {
-                // 默认使用北京的城市ID，可以从SharedPreferences读取用户设置的城市
-                val cityId = getDefaultCityId()
+                val prefs = requireContext().getSharedPreferences("weather_settings", Context.MODE_PRIVATE)
+                val useIpLocation = prefs.getBoolean("use_ip_location", true) // 默认启用IP定位
+                
+                var cityId: String? = null
+                
+                // 如果启用了IP定位，先尝试自动定位
+                if (useIpLocation) {
+                    Log.d("BrowseFragment", "IP定位已启用，尝试自动定位...")
+                    try {
+                        val locationResult = locationRepository.autoLocate()
+                        if (locationResult != null) {
+                            val (cityName, adcode) = locationResult
+                            cityId = adcode
+                            Log.d("BrowseFragment", "IP定位成功: $cityName ($adcode)")
+                            
+                            // 保存IP定位结果，但不修改use_ip_location标志
+                            prefs.edit()
+                                .putString("city_name", cityName)
+                                .putString("adcode", adcode)
+                                .apply()
+                        } else {
+                            Log.w("BrowseFragment", "IP定位失败，使用保存的城市")
+                        }
+                    } catch (e: Exception) {
+                        Log.e("BrowseFragment", "IP定位异常，使用保存的城市", e)
+                    }
+                }
+                
+                // 如果IP定位失败或被禁用，使用保存的城市
+                if (cityId == null) {
+                    cityId = getDefaultCityId()
+                    Log.d("BrowseFragment", "使用保存的城市ID: $cityId")
+                }
+                
                 val weather = weatherRepository.getWeather(cityId)
                 if (weather != null) {
                     currentWeather = weather
@@ -258,6 +303,114 @@ class BrowseFragment : BrowseSupportFragment() {
     private fun getDefaultCityId(): String {
         val prefs = requireContext().getSharedPreferences("weather_settings", Context.MODE_PRIVATE)
         return prefs.getString("adcode", "110100") ?: "110100" // 默认北京adcode
+    }
+    
+    /**
+     * 检查是否是工具卡片
+     */
+    private fun isFunctionCard(id: String): Boolean {
+        return id.startsWith("tool.")
+    }
+    
+    /**
+     * 处理工具卡片点击事件
+     */
+    private fun handleFunctionClick(functionId: String) {
+        when (functionId) {
+            BrowseViewModel.TOOL_TV_INPUT -> {
+                // TV信号源工具
+                openTvInput()
+            }
+            BrowseViewModel.TOOL_MEMORY_CLEAN -> {
+                // 内存清理工具
+                cleanMemory()
+            }
+        }
+    }
+    
+    /**
+     * 打开TV信号源
+     */
+    private fun openTvInput() {
+        try {
+            val tvSourceController = TvSourceController(requireContext())
+            val success = tvSourceController.openTvSource()
+            
+            if (success) {
+                // 启动TV监控服务
+                val serviceIntent = Intent(requireContext(), cf.zknb.tvlauncher.tvinput.TvMonitorService::class.java)
+                requireContext().startService(serviceIntent)
+                Log.d("BrowseFragment", "已启动TV监控服务")
+                
+                Toast.makeText(
+                    requireContext(),
+                    getString(cf.zknb.tvlauncher.R.string.tool_tv_input_success),
+                    Toast.LENGTH_SHORT
+                ).show()
+            } else {
+                Toast.makeText(
+                    requireContext(),
+                    getString(cf.zknb.tvlauncher.R.string.tool_tv_input_failed),
+                    Toast.LENGTH_LONG
+                ).show()
+            }
+        } catch (e: Exception) {
+            Log.e("BrowseFragment", "Failed to open TV input", e)
+            Toast.makeText(
+                requireContext(),
+                getString(cf.zknb.tvlauncher.R.string.tool_tv_input_failed),
+                Toast.LENGTH_LONG
+            ).show()
+        }
+    }
+    
+    /**
+     * 清理内存
+     */
+    private fun cleanMemory() {
+        // 显示清理中提示
+        Toast.makeText(
+            requireContext(),
+            getString(cf.zknb.tvlauncher.R.string.tool_memory_clean_cleaning),
+            Toast.LENGTH_SHORT
+        ).show()
+        
+        // 在后台线程执行清理
+        lifecycleScope.launch {
+            try {
+                val freedMemory = withContext(Dispatchers.IO) {
+                    MemoryCleaner.cleanMemory(requireContext())
+                }
+                
+                // 回到主线程显示结果
+                if (freedMemory > 0) {
+                    val freedText = MemoryCleaner.formatMemorySize(freedMemory)
+                    Toast.makeText(
+                        requireContext(),
+                        getString(cf.zknb.tvlauncher.R.string.tool_memory_clean_success, freedText),
+                        Toast.LENGTH_LONG
+                    ).show()
+                } else {
+                    Toast.makeText(
+                        requireContext(),
+                        getString(cf.zknb.tvlauncher.R.string.tool_memory_clean_no_effect),
+                        Toast.LENGTH_SHORT
+                    ).show()
+                }
+                
+                // 打印内存状态
+                val memoryStatus = MemoryCleaner.getMemoryStatusText(requireContext())
+                Log.d("BrowseFragment", "清理后内存状态: $memoryStatus")
+                
+            } catch (e: Exception) {
+                Log.e("BrowseFragment", "清理内存失败", e)
+                Toast.makeText(
+                    requireContext(),
+                    "清理失败: ${e.message}",
+                    Toast.LENGTH_SHORT
+                ).show()
+            }
+        }
     }
 
     /**
