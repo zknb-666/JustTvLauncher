@@ -7,7 +7,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import org.conscrypt.Conscrypt
 import org.json.JSONObject
+import java.security.Security
 import java.util.concurrent.TimeUnit
 
 /**
@@ -21,14 +23,60 @@ class WeatherRepository(private val context: Context) {
         private const val TAG = "WeatherRepository"
         private const val API_URL = "https://uapis.cn/api/v1/misc/weather"
         private const val TIMEOUT = 10000L // 10秒
+        
+        init {
+            // 在Android 4.2等老版本上安装Conscrypt作为首选安全提供者
+            try {
+                Security.insertProviderAt(Conscrypt.newProvider(), 1)
+                Log.d(TAG, "Conscrypt provider installed successfully")
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to install Conscrypt provider", e)
+            }
+        }
     }
     
     private val client: OkHttpClient by lazy {
-        OkHttpClient.Builder()
-            .connectTimeout(TIMEOUT, TimeUnit.MILLISECONDS)
-            .readTimeout(TIMEOUT, TimeUnit.MILLISECONDS)
-            .writeTimeout(TIMEOUT, TimeUnit.MILLISECONDS)
-            .build()
+        try {
+            val trustManager = createTrustManager()
+            
+            // 获取Conscrypt的SSLContext
+            val sslContext = javax.net.ssl.SSLContext.getInstance("TLS", Conscrypt.newProvider())
+            sslContext.init(null, arrayOf<javax.net.ssl.TrustManager>(trustManager), java.security.SecureRandom())
+            
+            OkHttpClient.Builder()
+                .connectTimeout(TIMEOUT, TimeUnit.MILLISECONDS)
+                .readTimeout(TIMEOUT, TimeUnit.MILLISECONDS)
+                .writeTimeout(TIMEOUT, TimeUnit.MILLISECONDS)
+                .sslSocketFactory(sslContext.socketFactory, trustManager)
+                .hostnameVerifier { _, _ -> true } // 信任所有主机名
+                .build()
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to create OkHttpClient with Conscrypt, using default", e)
+            // 降级到默认配置
+            OkHttpClient.Builder()
+                .connectTimeout(TIMEOUT, TimeUnit.MILLISECONDS)
+                .readTimeout(TIMEOUT, TimeUnit.MILLISECONDS)
+                .writeTimeout(TIMEOUT, TimeUnit.MILLISECONDS)
+                .build()
+        }
+    }
+    
+    /**
+     * 创建一个信任所有证书的TrustManager（仅用于兼容老版本Android）
+     * 注意：生产环境应该使用正确的证书验证
+     */
+    private fun createTrustManager(): javax.net.ssl.X509TrustManager {
+        return object : javax.net.ssl.X509TrustManager {
+            override fun checkClientTrusted(chain: Array<out java.security.cert.X509Certificate>?, authType: String?) {
+            }
+            
+            override fun checkServerTrusted(chain: Array<out java.security.cert.X509Certificate>?, authType: String?) {
+            }
+            
+            override fun getAcceptedIssuers(): Array<java.security.cert.X509Certificate> {
+                return arrayOf()
+            }
+        }
     }
     
     /**
