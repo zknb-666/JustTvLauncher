@@ -41,6 +41,12 @@ class LauncherActivity : FragmentActivity() {
      */
     private fun startTvMonitorService() {
         try {
+            // 检查设备是否支持TV信号源功能
+            if (!cf.zknb.tvlauncher.tvinput.TvSourceController.isDeviceSupported(this)) {
+                Log.d(TAG, "当前设备不支持TV信号源功能，跳过启动TV监控服务")
+                return
+            }
+            
             val serviceIntent = Intent(this, TvMonitorService::class.java)
             startService(serviceIntent)
             Log.d(TAG, "TV监控服务已启动")
@@ -53,6 +59,12 @@ class LauncherActivity : FragmentActivity() {
      * 切换TV输入源停止音频
      */
     private fun switchTvInputSource() {
+        // 检查设备是否支持TV信号源功能
+        if (!cf.zknb.tvlauncher.tvinput.TvSourceController.isDeviceSupported(this)) {
+            Log.d(TAG, "当前设备不支持TV信号源功能，跳过切换输入源")
+            return
+        }
+        
         TvInputSourceSwitcher.switchTvInputSource(this)
     }
 

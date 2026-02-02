@@ -59,6 +59,12 @@
             android:enabled="true"
             android:exported="false" />
         
+        <!-- 前台监控服务（备用，默认禁用） -->
+        <service
+            android:name=".tvinput.ForegroundMonitorService"
+            android:enabled="false"
+            android:exported="false" />
+        
         <!-- 开机启动接收器 -->
         <receiver
             android:name=".tvinput.BootReceiver"
