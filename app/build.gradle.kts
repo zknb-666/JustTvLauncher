@@ -16,6 +16,7 @@ android {
         targetSdk = 32
         versionCode = 20210913
         versionName = "2021.9.13"
+        multiDexEnabled = true  // 启用 MultiDex 支持 (方法数超过 65536)
 //        testInstrumentationRunner = "android.support.test.runner.AndroidJUnitRunner"
     }
     buildFeatures {
@@ -44,11 +45,15 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.5.2")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.3.1")
     
+    // MultiDex support for API < 21 (方法数超过 65536 时需要)
+    implementation("androidx.multidex:multidex:2.0.1")
+    
     // OkHttp for modern HTTP/HTTPS support
     implementation("com.squareup.okhttp3:okhttp:3.12.13") // 兼容Android 4.2的最后版本
     
-    // Conscrypt for modern TLS support on older Android versions
-    implementation("org.conscrypt:conscrypt-android:2.2.1") // 降低版本以兼容API 17
+    // BouncyCastle for modern TLS support on older Android versions (纯Java实现，无native依赖)
+    implementation("org.bouncycastle:bcprov-jdk15on:1.68") // 纯Java实现，适合system/app
+    implementation("org.bouncycastle:bctls-jdk15on:1.68") // TLS支持
     
     // Gson for JSON parsing
     implementation("com.google.code.gson:gson:2.8.9")

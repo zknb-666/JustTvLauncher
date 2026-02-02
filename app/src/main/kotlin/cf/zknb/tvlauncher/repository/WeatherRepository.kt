@@ -7,7 +7,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
-import org.conscrypt.Conscrypt
+import org.bouncycastle.jce.provider.BouncyCastleProvider
+import org.bouncycastle.jsse.provider.BouncyCastleJsseProvider
 import org.json.JSONObject
 import java.security.Security
 import java.util.concurrent.TimeUnit
@@ -15,7 +16,8 @@ import java.util.concurrent.TimeUnit
 /**
  * 天气数据仓库
  *
- * 负责从API获取天气数据，使用OkHttp和Conscrypt支持Android 4.2的TLS连接
+ * 负责从API获取天气数据，使用OkHttp和BouncyCastle支持Android 4.2的TLS连接
+ * BouncyCastle是纯Java实现，不依赖native库，适合system/app
  */
 class WeatherRepository(private val context: Context) {
     
@@ -25,12 +27,18 @@ class WeatherRepository(private val context: Context) {
         private const val TIMEOUT = 10000L // 10秒
         
         init {
-            // 在Android 4.2等老版本上安装Conscrypt作为首选安全提供者
+            // 在Android 4.2等老版本上安装BouncyCastle作为安全提供者（纯Java实现）
             try {
-                Security.insertProviderAt(Conscrypt.newProvider(), 1)
-                Log.d(TAG, "Conscrypt provider installed successfully")
+                // 移除已有的BC provider（如果存在）
+                Security.removeProvider("BC")
+                Security.removeProvider("BCJSSE")
+                
+                // 添加BouncyCastle provider
+                Security.insertProviderAt(BouncyCastleProvider(), 1)
+                Security.insertProviderAt(BouncyCastleJsseProvider(), 2)
+                Log.d(TAG, "BouncyCastle providers installed successfully")
             } catch (e: Exception) {
-                Log.w(TAG, "Failed to install Conscrypt provider", e)
+                Log.w(TAG, "Failed to install BouncyCastle providers", e)
             }
         }
     }
@@ -39,8 +47,8 @@ class WeatherRepository(private val context: Context) {
         try {
             val trustManager = createTrustManager()
             
-            // 获取Conscrypt的SSLContext
-            val sslContext = javax.net.ssl.SSLContext.getInstance("TLS", Conscrypt.newProvider())
+            // 获取BouncyCastle的SSLContext（使用BCJSSE provider）
+            val sslContext = javax.net.ssl.SSLContext.getInstance("TLS", "BCJSSE")
             sslContext.init(null, arrayOf<javax.net.ssl.TrustManager>(trustManager), java.security.SecureRandom())
             
             OkHttpClient.Builder()
@@ -51,7 +59,7 @@ class WeatherRepository(private val context: Context) {
                 .hostnameVerifier { _, _ -> true } // 信任所有主机名
                 .build()
         } catch (e: Exception) {
-            Log.w(TAG, "Failed to create OkHttpClient with Conscrypt, using default", e)
+            Log.w(TAG, "Failed to create OkHttpClient with BouncyCastle, using default", e)
             // 降级到默认配置
             OkHttpClient.Builder()
                 .connectTimeout(TIMEOUT, TimeUnit.MILLISECONDS)

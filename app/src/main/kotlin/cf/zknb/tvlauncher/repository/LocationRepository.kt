@@ -6,7 +6,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
-import org.conscrypt.Conscrypt
+import org.bouncycastle.jce.provider.BouncyCastleProvider
+import org.bouncycastle.jsse.provider.BouncyCastleJsseProvider
 import org.json.JSONObject
 import java.io.BufferedReader
 import java.io.InputStreamReader
@@ -17,6 +18,7 @@ import java.util.concurrent.TimeUnit
  * IP定位仓库
  * 
  * 通过IP地址获取用户所在城市信息
+ * 使用BouncyCastle（纯Java实现）支持Android 4.2的TLS
  */
 class LocationRepository(private val context: Context) {
 
@@ -26,24 +28,66 @@ class LocationRepository(private val context: Context) {
         private const val IP_API_URL = "https://myip.ipip.net/"
         private const val TIMEOUT = 5000L
         
-        // 初始化 Conscrypt 以支持 Android 4.2+ 的 TLS 1.2
+        // 初始化 BouncyCastle 以支持 Android 4.2+ 的 TLS 1.2（纯Java实现）
         init {
             try {
-                Security.insertProviderAt(Conscrypt.newProvider(), 1)
-                Log.d(TAG, "Conscrypt TLS provider initialized")
+                // 移除已有的BC provider（如果存在）
+                Security.removeProvider("BC")
+                Security.removeProvider("BCJSSE")
+                
+                // 添加BouncyCastle provider
+                Security.insertProviderAt(BouncyCastleProvider(), 1)
+                Security.insertProviderAt(BouncyCastleJsseProvider(), 2)
+                Log.d(TAG, "BouncyCastle TLS providers initialized")
             } catch (e: Exception) {
-                Log.e(TAG, "Failed to initialize Conscrypt", e)
+                Log.e(TAG, "Failed to initialize BouncyCastle", e)
             }
         }
     }
     
-    // 创建支持 TLS 1.2 的 OkHttpClient
+    // 创建支持 TLS 1.2 的 OkHttpClient，配置 BouncyCastle SSLContext
     private val okHttpClient by lazy {
-        OkHttpClient.Builder()
-            .connectTimeout(TIMEOUT, TimeUnit.MILLISECONDS)
-            .readTimeout(TIMEOUT, TimeUnit.MILLISECONDS)
-            .writeTimeout(TIMEOUT, TimeUnit.MILLISECONDS)
-            .build()
+        try {
+            val trustManager = createTrustManager()
+            
+            // 获取BouncyCastle的SSLContext（使用BCJSSE provider）
+            val sslContext = javax.net.ssl.SSLContext.getInstance("TLS", "BCJSSE")
+            sslContext.init(null, arrayOf<javax.net.ssl.TrustManager>(trustManager), java.security.SecureRandom())
+            
+            OkHttpClient.Builder()
+                .connectTimeout(TIMEOUT, TimeUnit.MILLISECONDS)
+                .readTimeout(TIMEOUT, TimeUnit.MILLISECONDS)
+                .writeTimeout(TIMEOUT, TimeUnit.MILLISECONDS)
+                .sslSocketFactory(sslContext.socketFactory, trustManager)
+                .hostnameVerifier { _, _ -> true } // 信任所有主机名
+                .build()
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to create OkHttpClient with BouncyCastle, using default", e)
+            // 降级到默认配置
+            OkHttpClient.Builder()
+                .connectTimeout(TIMEOUT, TimeUnit.MILLISECONDS)
+                .readTimeout(TIMEOUT, TimeUnit.MILLISECONDS)
+                .writeTimeout(TIMEOUT, TimeUnit.MILLISECONDS)
+                .build()
+        }
+    }
+    
+    /**
+     * 创建一个信任所有证书的TrustManager（仅用于兼容老版本Android）
+     * 注意：生产环境应该使用正确的证书验证
+     */
+    private fun createTrustManager(): javax.net.ssl.X509TrustManager {
+        return object : javax.net.ssl.X509TrustManager {
+            override fun checkClientTrusted(chain: Array<out java.security.cert.X509Certificate>?, authType: String?) {
+            }
+            
+            override fun checkServerTrusted(chain: Array<out java.security.cert.X509Certificate>?, authType: String?) {
+            }
+            
+            override fun getAcceptedIssuers(): Array<java.security.cert.X509Certificate> {
+                return arrayOf()
+            }
+        }
     }
 
     /**
