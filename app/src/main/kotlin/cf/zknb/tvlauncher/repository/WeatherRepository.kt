@@ -169,23 +169,61 @@ class WeatherRepository(private val context: Context) {
      * 将天气文本映射到天气代码（用于图标显示）
      */
     private fun mapWeatherTextToCode(weatherText: String): String {
+        // 参考和风天气官方图标代码 https://dev.qweather.com/docs/resource/icons/#weather-icons
         return when {
-            weatherText.contains("晴") -> "100"
-            weatherText.contains("多云") -> "101"
-            weatherText.contains("阴") -> "104"
-            weatherText.contains("雨") && weatherText.contains("雪") -> "400"
-            weatherText.contains("小雨") -> "305"
-            weatherText.contains("中雨") -> "306"
-            weatherText.contains("大雨") -> "307"
-            weatherText.contains("雨") -> "305"
-            weatherText.contains("小雪") -> "400"
-            weatherText.contains("中雪") -> "401"
-            weatherText.contains("大雪") -> "402"
-            weatherText.contains("雪") -> "400"
-            weatherText.contains("雾") -> "500"
-            weatherText.contains("霞") -> "502"
-            weatherText.contains("云") -> "103"
-            else -> "999"
+            weatherText.contains("晴") -> "100" // 晴
+            weatherText.contains("多云") -> "101" // 多云
+            weatherText.contains("少云") -> "102" // 少云
+            weatherText.contains("晴间多云") -> "103" // 晴间多云
+            weatherText.contains("阴") -> "104" // 阴
+            weatherText.contains("有风") || weatherText.contains("风") -> "200" // 有风
+            weatherText.contains("平静") -> "201"
+            weatherText.contains("微风") -> "202"
+            weatherText.contains("和风") -> "203"
+            weatherText.contains("清风") -> "204"
+            weatherText.contains("强风") -> "205"
+            weatherText.contains("劲风") -> "206"
+            weatherText.contains("疾风") -> "207"
+            weatherText.contains("大风") -> "208"
+            weatherText.contains("烈风") -> "209"
+            weatherText.contains("风暴") -> "210"
+            weatherText.contains("狂爆风") -> "211"
+            weatherText.contains("飓风") -> "212"
+            weatherText.contains("龙卷风") -> "213"
+            weatherText.contains("雾") -> "500" // 雾
+            weatherText.contains("霾") -> "501" // 霾
+            weatherText.contains("扬沙") -> "502"
+            weatherText.contains("浮尘") -> "503"
+            weatherText.contains("沙尘暴") -> "504"
+            weatherText.contains("强沙尘暴") -> "507"
+            weatherText.contains("强浓雾") -> "508"
+            weatherText.contains("雨") && weatherText.contains("雪") -> "406" // 雨夹雪
+            weatherText.contains("小雨") -> "300" // 小雨
+            weatherText.contains("中雨") -> "301" // 中雨
+            weatherText.contains("大雨") -> "302" // 大雨
+            weatherText.contains("阵雨") -> "303" // 阵雨
+            weatherText.contains("雷阵雨") -> "304" // 雷阵雨
+            weatherText.contains("极端降雨") -> "305"
+            weatherText.contains("毛毛雨") || weatherText.contains("细雨") -> "306"
+            weatherText.contains("暴雨") -> "307" // 暴雨
+            weatherText.contains("大暴雨") -> "308" // 大暴雨
+            weatherText.contains("特大暴雨") -> "309" // 特大暴雨
+            weatherText.contains("冻雨") -> "310"
+            weatherText.contains("小雪") -> "400" // 小雪
+            weatherText.contains("中雪") -> "401" // 中雪
+            weatherText.contains("大雪") -> "402" // 大雪
+            weatherText.contains("阵雪") -> "403" // 阵雪
+            weatherText.contains("雷阵雪") -> "404"
+            weatherText.contains("暴雪") -> "405" // 暴雪
+            weatherText.contains("雨夹雪") -> "406" // 雨夹雪
+            weatherText.contains("雪") -> "400" // 默认雪
+            weatherText.contains("冰雹") -> "407" // 冰雹
+            weatherText.contains("霜冻") -> "503"
+            weatherText.contains("露") -> "504"
+            weatherText.contains("热") -> "900"
+            weatherText.contains("冷") -> "901"
+            weatherText.contains("未知") -> "999"
+            else -> "999" // 未知天气
         }
     }
 }
