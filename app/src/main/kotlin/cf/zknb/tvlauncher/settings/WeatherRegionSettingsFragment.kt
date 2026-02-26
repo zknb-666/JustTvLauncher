@@ -31,6 +31,7 @@ class WeatherRegionSettingsFragment : GuidedStepSupportFragment() {
         private const val KEY_USE_IP_LOCATION = "use_ip_location"
         private const val ACTION_AUTO_LOCATE = -1L
         private const val ACTION_ENABLE_IP_LOCATE = -2L
+        private const val CHECK_SET_ID = 1
     }
 
     private var provinceDataMap: Map<String, ProvinceData>? = null
@@ -89,51 +90,53 @@ class WeatherRegionSettingsFragment : GuidedStepSupportFragment() {
         actions.add(
             GuidedAction.Builder(context)
                 .id(ACTION_ENABLE_IP_LOCATE)
-                .title(if (useIpLocation) "✓ 自动使用IP定位" else "☐ 自动使用IP定位")
-                .description(if (useIpLocation) "应用启动时自动定位（已启用）" else "应用启动时自动定位（已禁用）")
+                .title("自动使用IP定位")
+                .description("应用启动时自动定位")
+                .checkSetId(CHECK_SET_ID)
+                .checked(useIpLocation)
                 .build()
         )
         
-        // 如果数据还未加载，先加载
-        if (provinceDataMap == null) {
-            loadAreaData()
-        }
-        
-        val dataMap = provinceDataMap
-        if (dataMap == null || dataMap.isEmpty()) {
-            Log.e(TAG, "Province data is null or empty in onCreateActions")
-            return
-        }
-        
-        Log.d(TAG, "Creating actions for ${dataMap.size} provinces")
-        
-        dataMap.values.sortedBy { it.id }.forEach { province ->
-            val subActions = mutableListOf<GuidedAction>()
+            // 如果数据还未加载，先加载
+            if (provinceDataMap == null) {
+                loadAreaData()
+            }
             
-            // 为每个省份创建城市子选项
-            province.cities.values.sortedBy { it.id }.forEach { city ->
-                val isSelected = city.cityAdcode.toString() == currentAdcode
-                subActions.add(
+            val dataMap = provinceDataMap
+            if (dataMap == null || dataMap.isEmpty()) {
+                Log.e(TAG, "Province data is null or empty in onCreateActions")
+                return
+            }
+            
+            Log.d(TAG, "Creating actions for ${dataMap.size} provinces")
+            
+            dataMap.values.sortedBy { it.id }.forEach { province ->
+                val subActions = mutableListOf<GuidedAction>()
+                
+                // 为每个省份创建城市子选项
+                province.cities.values.sortedBy { it.id }.forEach { city ->
+                    val isSelected = city.cityAdcode.toString() == currentAdcode
+                    subActions.add(
+                        GuidedAction.Builder(context)
+                            .id(city.cityAdcode.toLong())
+                            .title(city.cityName)
+                            .description(if (isSelected) "✓ 当前选择" else "")
+                            .build()
+                    )
+                }
+                
+                // 创建省份主选项
+                actions.add(
                     GuidedAction.Builder(context)
-                        .id(city.cityAdcode.toLong())
-                        .title(city.cityName)
-                        .description(if (isSelected) "✓ 当前选择" else "")
+                        .id(province.provinceAdcode.toLong())
+                        .title(province.provinceName)
+                        .description("${province.cities.size}个城市")
+                        .subActions(subActions)
                         .build()
                 )
             }
             
-            // 创建省份主选项
-            actions.add(
-                GuidedAction.Builder(context)
-                    .id(province.provinceAdcode.toLong())
-                    .title(province.provinceName)
-                    .description("${province.cities.size}个城市")
-                    .subActions(subActions)
-                    .build()
-            )
-        }
-        
-        Log.d(TAG, "Created ${actions.size} province actions")
+            Log.d(TAG, "Created ${actions.size} province actions")
     }
     
     override fun onGuidedActionClicked(action: GuidedAction) {
@@ -160,11 +163,10 @@ class WeatherRegionSettingsFragment : GuidedStepSupportFragment() {
         
         prefs.edit()
             .putBoolean(KEY_USE_IP_LOCATION, newState)
-            .apply()
+            .commit()
         
         // 更新action的显示
-        action.title = if (newState) "✓ 自动使用IP定位" else "☐ 自动使用IP定位"
-        action.description = if (newState) "应用启动时自动定位（已启用）" else "应用启动时自动定位（已禁用）"
+        action.setChecked(newState)
         notifyActionChanged(findActionPositionById(ACTION_ENABLE_IP_LOCATE))
         
         Toast.makeText(
