@@ -120,9 +120,13 @@ class LocationRepository(private val context: Context) {
                                 val data = root.optJSONObject("data")
                                 val province = data?.optString("province", "") ?: ""
                                 val city = data?.optString("city", "") ?: ""
-                                Log.d(TAG, "解析到省市: province=$province, city=$city")
-                                if (province.isNotEmpty() && city.isNotEmpty()) {
-                                    return@withContext Pair(city, province)
+                                val district = data?.optString("district", "") ?: ""
+                                Log.d(TAG, "解析到省市区县: province=$province, city=$city, district=$district")
+                                
+                                // 优先使用district作为定位结果，如果district为空则使用city
+                                val locationName = if (district.isNotEmpty()) district else city
+                                if (province.isNotEmpty() && locationName.isNotEmpty()) {
+                                    return@withContext Pair(locationName, province)
                                 }
                             } else {
                                 Log.w(TAG, "API返回非200状态: $code")
@@ -142,8 +146,8 @@ class LocationRepository(private val context: Context) {
 
     /**
      * 根据城市名称查找对应的adcode
-     * 从all_area_with_adcode_key.json中匹配城市
-     * @param cityName 城市名称（如"北京市"）
+     * 从all_area_with_adcode_key.json中匹配城市或区县
+     * @param cityName 城市名称（如"北京市"）或区县名称（如"冷水滩区"）
      * @param provinceName 省份名称（如"北京市"）
      * @return adcode 或 null
      */
@@ -169,19 +173,42 @@ class LocationRepository(private val context: Context) {
                         val cityObj = citiesObj.getJSONObject(cityKey)
                         val cityNameInData = cityObj.getString("city_name")
                         val cityAdcode = cityObj.getString("city_adcode")
-                        val cityNameSimplified = cityName.replace("市", "")
-                        val cityNameInDataSimplified = cityNameInData.replace("市", "")
-                        Log.d(TAG, "对比: $cityNameSimplified vs $cityNameInDataSimplified")
+                        val cityNameSimplified = cityName.replace("市", "").replace("区", "").replace("县", "").replace("自治州", "").replace("盟", "")
+                        val cityNameInDataSimplified = cityNameInData.replace("市", "").replace("区", "").replace("县", "").replace("自治州", "").replace("盟", "")
+                        
+                        // 1. 首先尝试城市级别匹配
+                        Log.d(TAG, "对比城市: $cityNameSimplified vs $cityNameInDataSimplified")
                         if (cityNameSimplified == cityNameInDataSimplified ||
                             cityNameInData.contains(cityNameSimplified, ignoreCase = false) ||
                             cityNameSimplified.contains(cityNameInDataSimplified, ignoreCase = false)) {
                             Log.d(TAG, "找到匹配城市: $cityNameInData (adcode: $cityAdcode)")
                             return@withContext cityAdcode
                         }
+                        
+                        // 2. 如果城市级别匹配失败，尝试区县级别匹配
+                        if (cityObj.has("district")) {
+                            val districtObj = cityObj.getJSONObject("district")
+                            val districtKeys = districtObj.keys()
+                            while (districtKeys.hasNext()) {
+                                val districtKey = districtKeys.next()
+                                val districtData = districtObj.getJSONObject(districtKey)
+                                val districtNameInData = districtData.getString("district_name")
+                                val districtAdcode = districtData.getString("district_adcode")
+                                val districtNameInDataSimplified = districtNameInData.replace("市", "").replace("区", "").replace("县", "").replace("自治州", "").replace("盟", "")
+                                
+                                Log.d(TAG, "对比区县: $cityNameSimplified vs $districtNameInDataSimplified")
+                                if (cityNameSimplified == districtNameInDataSimplified ||
+                                    districtNameInData.contains(cityNameSimplified, ignoreCase = false) ||
+                                    cityNameSimplified.contains(districtNameInDataSimplified, ignoreCase = false)) {
+                                    Log.d(TAG, "找到匹配区县: $districtNameInData (adcode: $districtAdcode), 所属城市: $cityNameInData")
+                                    return@withContext districtAdcode
+                                }
+                            }
+                        }
                     }
                 }
             }
-            Log.w(TAG, "未找到匹配的城市: $provinceName $cityName")
+            Log.w(TAG, "未找到匹配的城市或区县: $provinceName $cityName")
             null
         } catch (e: Exception) {
             Log.e(TAG, "查找adcode失败", e)

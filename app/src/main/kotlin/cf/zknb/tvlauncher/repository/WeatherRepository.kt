@@ -150,8 +150,11 @@ class WeatherRepository(private val context: Context) {
             val weatherText = json.optString("weather", "未知")
             val weatherCode = mapWeatherTextToCode(weatherText)
             
+            // 优先使用district作为city值，如果district为空则使用city
+            val locationName = json.optString("district", "")?.takeIf { it.isNotEmpty() } ?: json.optString("city", "未知")
+            
             val weather = Weather(
-                city = json.optString("city", "未知"),
+                city = locationName,
                 weather = weatherText,
                 temperature = "${json.optInt("temperature", 0)}°C",
                 weatherCode = weatherCode
