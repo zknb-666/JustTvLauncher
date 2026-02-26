@@ -6,6 +6,8 @@ import android.graphics.drawable.Drawable
 import android.os.Bundle
 import android.util.Log
 import android.widget.Toast
+import android.content.Intent
+import android.net.Uri
 import androidx.leanback.app.GuidedStepSupportFragment
 import androidx.leanback.widget.GuidanceStylist
 import androidx.leanback.widget.GuidedAction
@@ -201,14 +203,24 @@ class AppInfoFragment : GuidedStepSupportFragment() {
                     .build()
             )
             
-            // 应用设置
-            actions.add(
-                GuidedAction.Builder(context)
-                    .id(AppInfoActivity.ACTION_ID_SETTINGS)
-                    .title(R.string.action_app_settings)
-                    .description(R.string.action_app_settings_desc)
-                    .build()
-            )
+            // 应用设置（只有当系统设置应用可用时才显示）
+            packageName?.let { pkg ->
+                val settingsIntent = android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS.let {
+                    Intent(it).apply { data = android.net.Uri.fromParts("package", pkg, null) }
+                }
+                val canResolve = context.packageManager.queryIntentActivities(settingsIntent, 0).isNotEmpty()
+                if (canResolve) {
+                    actions.add(
+                        GuidedAction.Builder(context)
+                            .id(AppInfoActivity.ACTION_ID_SETTINGS)
+                            .title(R.string.action_app_settings)
+                            .description(R.string.action_app_settings_desc)
+                            .build()
+                    )
+                } else {
+                    Log.d(TAG, "Settings app not installed; hiding settings action")
+                }
+            }
             
             // 在应用商店查看
             actions.add(
