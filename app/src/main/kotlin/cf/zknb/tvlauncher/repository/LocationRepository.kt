@@ -24,8 +24,9 @@ class LocationRepository(private val context: Context) {
 
     companion object {
         private const val TAG = "LocationRepository"
-        // 使用 myip.ipip.net API
-        private const val IP_API_URL = "https://myip.ipip.net/"
+        // 使用 优创API 高精度IP定位接口（https://apis.uctb.cn/api/high）
+        // 不传 ip 参数时默认查询当前请求IP
+        private const val IP_API_URL = "https://apis.uctb.cn/api/high"
         private const val TIMEOUT = 5000L
         
         // 初始化 BouncyCastle 以支持 Android 4.2+ 的 TLS 1.2（纯Java实现）
@@ -99,7 +100,7 @@ class LocationRepository(private val context: Context) {
             Log.d(TAG, "请求IP定位API: $IP_API_URL")
             
             val request = Request.Builder()
-                .url(IP_API_URL)
+                .url(IP_API_URL) // 不传ip，接口自动使用当前请求IP
                 .header("User-Agent", "Mozilla/5.0")
                 .build()
             
@@ -111,28 +112,23 @@ class LocationRepository(private val context: Context) {
                     val responseBody = response.body()?.string()
                     Log.d(TAG, "IP定位API响应内容: $responseBody")
                     
-                    if (responseBody != null) {
-                        // myip.ipip.net 返回格式: "当前 IP：xxx.xxx.xxx.xxx  来自于：中国 湖南 永州  移动"
-                        // 支持中文冒号和英文冒号
-                        val locationPart = responseBody.split("来自于[：:]".toRegex()).getOrNull(1)?.trim()
-                        if (locationPart != null) {
-                            // 按空格分割，并过滤空字符串（处理多余空格）
-                            val parts = locationPart.split("\\s+".toRegex()).filter { it.isNotEmpty() }
-                            Log.d(TAG, "解析到的位置信息部分: $parts (size=${parts.size})")
-                            // 格式: [国家, 省份, 城市, 运营商(可选)]
-                            if (parts.size >= 3) {
-                                val country = parts[0]
-                                val province = parts[1]
-                                val city = parts[2]
-                                Log.d(TAG, "IP定位成功: 国家=$country, 省份=$province, 城市=$city")
-                                if (city.isNotEmpty() && province.isNotEmpty()) {
+                    if (!responseBody.isNullOrEmpty()) {
+                        try {
+                            val root = JSONObject(responseBody)
+                            val code = root.optInt("code", -1)
+                            if (code == 200) {
+                                val data = root.optJSONObject("data")
+                                val province = data?.optString("province", "") ?: ""
+                                val city = data?.optString("city", "") ?: ""
+                                Log.d(TAG, "解析到省市: province=$province, city=$city")
+                                if (province.isNotEmpty() && city.isNotEmpty()) {
                                     return@withContext Pair(city, province)
                                 }
                             } else {
-                                Log.w(TAG, "位置信息部分数量不足: $parts")
+                                Log.w(TAG, "API返回非200状态: $code")
                             }
-                        } else {
-                            Log.w(TAG, "无法解析响应格式: $responseBody")
+                        } catch (e: Exception) {
+                            Log.e(TAG, "解析IP定位API响应失败", e)
                         }
                     }
                 }

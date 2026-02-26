@@ -30357,7 +30357,7 @@
     },
     "810000": {
         "id": 33,
-        "province_name": "香港",
+        "province_name": "香港特别行政区",
         "province_adcode": 810000,
         "city": {
             "810000": {
@@ -30499,7 +30499,7 @@
     },
     "820000": {
         "id": 34,
-        "province_name": "澳门",
+        "province_name": "澳门特别行政区",
         "province_adcode": 820000,
         "city": {
             "820000": {
