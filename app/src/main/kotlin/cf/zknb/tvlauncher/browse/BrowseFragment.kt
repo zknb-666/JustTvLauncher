@@ -244,6 +244,13 @@ class BrowseFragment : BrowseSupportFragment() {
      * 加载天气信息
      */
     private fun loadWeather() {
+        // 尝试先显示缓存中的天气
+        val cached = weatherRepository.loadCachedWeather(requireContext())
+        if (cached != null) {
+            currentWeather = cached
+            updateWeather()
+        }
+
         lifecycleScope.launch {
             try {
                 val prefs = requireContext().getSharedPreferences("weather_settings", Context.MODE_PRIVATE)

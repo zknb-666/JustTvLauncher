@@ -25,6 +25,7 @@ class WeatherRepository(private val context: Context) {
         private const val TAG = "WeatherRepository"
         private const val API_URL = "https://uapis.cn/api/v1/misc/weather"
         private const val TIMEOUT = 1000L // 1秒
+        private const val PREFS_WEATHER = "cached_weather"
         
         init {
             // 在Android 4.2等老版本上安装BouncyCastle作为安全提供者（纯Java实现）
@@ -114,7 +115,12 @@ class WeatherRepository(private val context: Context) {
                 Log.d(TAG, "Response: $responseBody")
                 
                 if (responseBody != null) {
-                    parseWeatherResponse(responseBody)
+                    val weather = parseWeatherResponse(responseBody)
+                    // cache result asynchronously
+                    if (weather != null) {
+                        cacheWeather(responseBody, context)
+                    }
+                    weather
                 } else {
                     Log.e(TAG, "Response body is null")
                     null
@@ -228,6 +234,30 @@ class WeatherRepository(private val context: Context) {
             weatherText.contains("冷") -> "901"
             weatherText.contains("未知") -> "999"
             else -> "999" // 未知天气
+        }
+    }
+
+    /**
+     * 缓存原始响应到SharedPreferences
+     */
+    private fun cacheWeather(rawJson: String, context: Context) {
+        try {
+            val prefs = context.getSharedPreferences("weather_settings", Context.MODE_PRIVATE)
+            prefs.edit().putString(PREFS_WEATHER, rawJson).apply()
+        } catch (_: Exception) {}
+    }
+
+    /**
+     * 从SharedPreferences中读取缓存的天气
+     */
+    fun loadCachedWeather(context: Context): Weather? {
+        return try {
+            val prefs = context.getSharedPreferences("weather_settings", Context.MODE_PRIVATE)
+            val json = prefs.getString(PREFS_WEATHER, null) ?: return null
+            parseWeatherResponse(json)
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to load cached weather", e)
+            null
         }
     }
 }
