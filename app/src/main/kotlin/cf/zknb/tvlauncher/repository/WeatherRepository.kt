@@ -24,7 +24,7 @@ class WeatherRepository(private val context: Context) {
     companion object {
         private const val TAG = "WeatherRepository"
         private const val API_URL = "https://uapis.cn/api/v1/misc/weather"
-        private const val TIMEOUT = 10000L // 10秒
+        private const val TIMEOUT = 1000L // 1秒
         
         init {
             // 在Android 4.2等老版本上安装BouncyCastle作为安全提供者（纯Java实现）
