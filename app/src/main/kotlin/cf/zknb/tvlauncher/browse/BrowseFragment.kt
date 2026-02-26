@@ -50,9 +50,16 @@ import java.util.*
  * 当前时间，以及处理应用启动和包变化
  */
 class BrowseFragment : BrowseSupportFragment() {
-    private val handler = Handler(Looper.getMainLooper())
-    private val dateFormat = SimpleDateFormat("HH:mm", Locale.getDefault())
-    private lateinit var viewModel: BrowseViewModel
+    private val handler by lazy { Handler(Looper.getMainLooper()) }
+    
+    companion object {
+        private const val SCHEME_PACKAGE = "package"
+        private val dateFormat = SimpleDateFormat("HH:mm", Locale.getDefault())
+    }
+    private val viewModel: BrowseViewModel by lazy {
+        val factory = ViewModelProvider.AndroidViewModelFactory.getInstance(requireActivity().application)
+        ViewModelProvider(this, factory).get(BrowseViewModel::class.java)
+    }
     private lateinit var weatherRepository: WeatherRepository
     private var currentWeather: Weather? = null
     private var settingsIcon: ImageView? = null
@@ -85,14 +92,6 @@ class BrowseFragment : BrowseSupportFragment() {
         // 初始化天气仓库
         weatherRepository = WeatherRepository(requireContext())
         
-        // 初始化ViewModel
-        val factory = ViewModelProvider.AndroidViewModelFactory.getInstance(requireActivity().application)
-        viewModel = ViewModelProvider(this, factory).get(BrowseViewModel::class.java)
-        
-        // 观察浏览内容变化
-        viewModel.browseContent.observe(this) {
-            adapter = BrowseAdapter(it!!)
-        }
         
         // 设置项目点击监听器
         setOnItemViewClickedListener { _, item, _, _ ->
@@ -452,6 +451,10 @@ class BrowseFragment : BrowseSupportFragment() {
      */
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
+        // observe LiveData with viewLifecycleOwner to avoid leaks
+        viewModel.browseContent.observe(viewLifecycleOwner) {
+            adapter = BrowseAdapter(it!!)
+        }
         setupWeatherView()
         setupSettingsIcon()
     }
@@ -686,6 +689,16 @@ class BrowseFragment : BrowseSupportFragment() {
         context.unregisterReceiver(wallpaperChangedReceiver)
     }
 
+    override fun onDestroyView() {
+        super.onDestroyView()
+        // clear view references to allow GC
+        weatherContainer = null
+        weatherIconView = null
+        weatherCityView = null
+        weatherInfoView = null
+        settingsIcon = null
+    }
+
     /**
      * 时间 tick 事件的广播接收器
      *
@@ -782,7 +795,4 @@ class BrowseFragment : BrowseSupportFragment() {
         viewModel.loadShortcutGroupList()
     }
 
-    companion object {
-        private const val SCHEME_PACKAGE = "package"
-    }
 }
