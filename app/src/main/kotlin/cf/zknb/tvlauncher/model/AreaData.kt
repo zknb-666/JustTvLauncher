@@ -26,5 +26,19 @@ data class CityData(
     @SerializedName("province_adcode")
     val provinceAdcode: Int,
     @SerializedName("province_id")
-    val provinceId: Int
+    val provinceId: Int,
+    // 可能包含区县数据
+    @SerializedName("district")
+    val district: Map<String, DistrictData>? = null
+)
+
+data class DistrictData(
+    @SerializedName("id")
+    val id: Int? = null,
+    @SerializedName("district_name")
+    val districtName: String,
+    @SerializedName("district_adcode")
+    val districtAdcode: Int,
+    @SerializedName("city_adcode")
+    val cityAdcode: Int? = null
 )

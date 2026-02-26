@@ -248,7 +248,7 @@ class BrowseFragment : BrowseSupportFragment() {
         lifecycleScope.launch {
             try {
                 val prefs = requireContext().getSharedPreferences("weather_settings", Context.MODE_PRIVATE)
-                val useIpLocation = prefs.getBoolean("use_ip_location", true) // 默认启用天气定位（通过接口根据IP确定城市）
+                val useIpLocation = prefs.getBoolean("use_ip_location", true) // 默认启用天气定位；手动选择会将其设为false
                 
                 var weather: cf.zknb.tvlauncher.model.Weather? = null
                 
