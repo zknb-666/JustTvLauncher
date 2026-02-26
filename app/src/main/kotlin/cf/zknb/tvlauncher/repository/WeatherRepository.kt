@@ -139,13 +139,13 @@ class WeatherRepository(private val context: Context) {
             val json = JSONObject(response)
             Log.d(TAG, "Parsing JSON response")
             
-            // 检查必要字段是否存�?
+            // 检查必要字段是否存在
             if (!json.has("city") || !json.has("weather")) {
                 Log.e(TAG, "Missing required fields in response")
                 return null
             }
             
-            // 获取天气代码，用于图标映�?
+            // 获取天气代码，用于图标映射
             // 由于API没有返回weatherCode，我们根据weather文本映射
             val weatherText = json.optString("weather", "未知")
             val weatherCode = mapWeatherTextToCode(weatherText)

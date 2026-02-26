@@ -64,7 +64,9 @@ class BrowseFragment : BrowseSupportFragment() {
     private var weatherInfoView: TextView? = null
     
     /**
-     * 当前焦点的应用快捷方�?     * 用于存储当前获得焦点的应用快捷方式，以便在其他地方使�?     */
+     * 当前焦点的应用快捷方式
+     * 用于存储当前获得焦点的应用快捷方式，以便在其他地方使用
+     */
     var currentFocusedShortcut: Shortcut? = null
     
     /**

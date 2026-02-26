@@ -17,8 +17,8 @@ object QWeatherIconsUtil {
     private var typeface: Typeface? = null
     
     /**
-     * 天气代码到Unicode字符的映�?
-     * 这些是和风天气图标字体中的字符编�?
+     * 天气代码到Unicode字符的映射
+     * 这些是和风天气图标字体中的字符编码
      */
     private val iconMap = mapOf(
         "100" to '\uF101', // 晴

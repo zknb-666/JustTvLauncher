@@ -185,7 +185,8 @@ class AppInfoActivity : FragmentActivity() {
      */
     override fun onBackPressed() {
         super.onBackPressed()
-        // 添加退出动�?        overridePendingTransition(R.anim.app_info_enter, R.anim.app_info_exit)
+        // 添加退出动画
+        overridePendingTransition(R.anim.app_info_enter, R.anim.app_info_exit)
     }
 
     /**

@@ -344,7 +344,7 @@ class AppInfoFragment : GuidedStepSupportFragment() {
                 
                 Log.d(TAG, "Hide toggled: $isHidden for $pkg")
                 
-                // 如果隐藏应用，延迟关闭当前界�?
+                // 如果隐藏应用，延迟关闭当前界面
                 if (isHidden) {
                     view?.postDelayed({
                         activity?.finish()
