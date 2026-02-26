@@ -1,32 +1,52 @@
-*.iml
-.gradle
+# Android Studio
+# See https://developer.android.com/studio/intro#projects for more details
+
+# Gradle files
+.gradle/
 /local.properties
-/.idea/caches
-/.idea/libraries
-/.idea/modules.xml
-/.idea/workspace.xml
-/.idea/navEditor.xml
-/.idea/assetWizardSettings.xml
-.DS_Store
-/build
-/app/build
-/captures
-.externalNativeBuild
-.cxx
-local.properties
+
+# Generated files
+/build/
+/app/build/
+
+# IntelliJ/Android Studio
+/.idea/
+*.iml
+
+# Android specific
+/captures/
+.externalNativeBuild/
+.cxx/
+
+# Keystore files
+*.jks
+*.keystore
+
+# APKs and binaries
 *.apk
 *.ap_
 *.dex
 *.class
+
+# Backup and temporary files
+*.log
+*.orig
+.DS_Store
+
+# Generated source
 bin/
 gen/
 out/
 .navigation/
-captures/
-freeline/
-freeline_project_description.json
+
+# Fastlane
 fastlane/report.xml
 fastlane/Preview.html
 fastlane/screenshots
 fastlane/test_output
 fastlane/readme.md
+
+# Other
+freeline/
+freeline_project_description.json
+
