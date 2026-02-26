@@ -35,7 +35,6 @@ import cf.zknb.tvlauncher.cleaner.MemoryCleaner
 import cf.zknb.tvlauncher.model.Shortcut
 import cf.zknb.tvlauncher.model.Weather
 import cf.zknb.tvlauncher.repository.WeatherRepository
-import cf.zknb.tvlauncher.repository.LocationRepository
 import cf.zknb.tvlauncher.util.QWeatherIconsUtil
 import cf.zknb.tvlauncher.util.ColorExtractor
 import kotlinx.coroutines.launch
@@ -55,7 +54,6 @@ class BrowseFragment : BrowseSupportFragment() {
     private val dateFormat = SimpleDateFormat("HH:mm", Locale.getDefault())
     private lateinit var viewModel: BrowseViewModel
     private lateinit var weatherRepository: WeatherRepository
-    private lateinit var locationRepository: LocationRepository
     private var currentWeather: Weather? = null
     private var settingsIcon: ImageView? = null
     private var weatherContainer: LinearLayout? = null
@@ -86,7 +84,6 @@ class BrowseFragment : BrowseSupportFragment() {
         
         // 初始化天气仓库
         weatherRepository = WeatherRepository(requireContext())
-        locationRepository = LocationRepository(requireContext())
         
         // 初始化ViewModel
         val factory = ViewModelProvider.AndroidViewModelFactory.getInstance(requireActivity().application)
@@ -251,27 +248,23 @@ class BrowseFragment : BrowseSupportFragment() {
         lifecycleScope.launch {
             try {
                 val prefs = requireContext().getSharedPreferences("weather_settings", Context.MODE_PRIVATE)
-                val useIpLocation = prefs.getBoolean("use_ip_location", true) // 默认启用IP定位
+                val useIpLocation = prefs.getBoolean("use_ip_location", true) // 默认启用天气定位（通过接口根据IP确定城市）
                 
-                var cityId: String? = null
+                var weather: cf.zknb.tvlauncher.model.Weather? = null
                 
-                // 如果启用了IP定位，先尝试自动定位
+                // 如果启用了IP定位，直接调用天气API获取当前IP对应的天气
                 if (useIpLocation) {
-                    Log.d("BrowseFragment", "IP定位已启用，尝试自动定位...")
+                    Log.d("BrowseFragment", "IP定位已启用，直接通过天气接口获取...")
                     try {
-                        val locationResult = locationRepository.autoLocate()
-                        if (locationResult != null) {
-                            val (cityName, adcode) = locationResult
-                            cityId = adcode
-                            Log.d("BrowseFragment", "IP定位成功: $cityName ($adcode)")
-                            
-                            // 保存IP定位结果，但不修改use_ip_location标志
+                        weather = weatherRepository.getWeather()
+                        if (weather != null) {
+                            // 保存定位结果以便后续失败时回退
                             prefs.edit()
-                                .putString("city_name", cityName)
-                                .putString("adcode", adcode)
+                                .putString("city_name", weather.city)
+                                .putString("adcode", weather.adcode)
                                 .apply()
                         } else {
-                            Log.w("BrowseFragment", "IP定位失败，使用保存的城市")
+                            Log.w("BrowseFragment", "通过天气接口获取定位天气失败，使用保存的城市")
                         }
                     } catch (e: Exception) {
                         Log.e("BrowseFragment", "IP定位异常，使用保存的城市", e)
@@ -279,12 +272,12 @@ class BrowseFragment : BrowseSupportFragment() {
                 }
                 
                 // 如果IP定位失败或被禁用，使用保存的城市
-                if (cityId == null) {
-                    cityId = getDefaultCityId()
+                if (weather == null) {
+                    val cityId = getDefaultCityId()
                     Log.d("BrowseFragment", "使用保存的城市ID: $cityId")
+                    weather = weatherRepository.getWeather(cityId)
                 }
                 
-                val weather = weatherRepository.getWeather(cityId)
                 if (weather != null) {
                     currentWeather = weather
                     updateWeather() // 更新天气显示

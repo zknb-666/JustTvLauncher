@@ -12,5 +12,9 @@ data class Weather(
     val city: String,
     val weather: String,
     val temperature: String,
-    val weatherCode: String
+    val weatherCode: String,
+    /**
+     * 高德地图的城市 adcode，或来自天气接口的 adcode
+     */
+    val adcode: String
 )

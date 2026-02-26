@@ -88,14 +88,14 @@ class WeatherRepository(private val context: Context) {
     }
     
     /**
-     * 根据城市adcode获取天气信息
+     * 根据城市adcode获取天气信息；如果adcode为空则直接调用IP定位天气接口
      *
-     * @param adcode 高德地图城市adcode（如：110100 北京）
+     * @param adcode 高德地图城市adcode（如：110100 北京），可为空
      * @return Weather对象，失败返回null
      */
-    suspend fun getWeather(adcode: String): Weather? = withContext(Dispatchers.IO) {
+    suspend fun getWeather(adcode: String? = null): Weather? = withContext(Dispatchers.IO) {
         try {
-            val urlString = "$API_URL?adcode=$adcode"
+            val urlString = if (adcode.isNullOrEmpty()) API_URL else "$API_URL?adcode=$adcode"
             Log.d(TAG, "Requesting weather from: $urlString")
             
             val request = Request.Builder()
@@ -157,7 +157,8 @@ class WeatherRepository(private val context: Context) {
                 city = locationName,
                 weather = weatherText,
                 temperature = "${json.optInt("temperature", 0)}°C",
-                weatherCode = weatherCode
+                weatherCode = weatherCode,
+                adcode = json.optString("adcode", "")
             )
             
             Log.d(TAG, "Weather parsed successfully: ${weather.city} ${weather.weather} ${weather.temperature}")

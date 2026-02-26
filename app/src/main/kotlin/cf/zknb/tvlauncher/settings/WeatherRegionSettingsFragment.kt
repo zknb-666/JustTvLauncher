@@ -10,7 +10,7 @@ import androidx.leanback.widget.GuidedAction
 import androidx.lifecycle.lifecycleScope
 import cf.zknb.tvlauncher.R
 import cf.zknb.tvlauncher.model.ProvinceData
-import cf.zknb.tvlauncher.repository.LocationRepository
+import cf.zknb.tvlauncher.repository.WeatherRepository
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import java.io.InputStreamReader
@@ -35,12 +35,12 @@ class WeatherRegionSettingsFragment : GuidedStepSupportFragment() {
     }
 
     private var provinceDataMap: Map<String, ProvinceData>? = null
-    private var locationRepository: LocationRepository? = null
+    private lateinit var weatherRepository: WeatherRepository
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         loadAreaData()
-        locationRepository = LocationRepository(requireContext())
+        weatherRepository = WeatherRepository(requireContext())
     }
 
     /**
@@ -75,14 +75,14 @@ class WeatherRegionSettingsFragment : GuidedStepSupportFragment() {
         val context = requireContext()
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         val currentAdcode = prefs.getString(KEY_ADCODE, "110100")
-        val useIpLocation = prefs.getBoolean(KEY_USE_IP_LOCATION, true) // 默认启用IP定位
+        val useIpLocation = prefs.getBoolean(KEY_USE_IP_LOCATION, true) // 默认启用天气定位（通过接口根据IP确定城市）
         
         // 添加自动定位选项
         actions.add(
             GuidedAction.Builder(context)
                 .id(ACTION_AUTO_LOCATE)
                 .title("📍 自动定位")
-                .description("根据IP地址自动获取当前城市")
+                .description("通过天气API自动获取当前城市")
                 .build()
         )
         
@@ -90,7 +90,7 @@ class WeatherRegionSettingsFragment : GuidedStepSupportFragment() {
         actions.add(
             GuidedAction.Builder(context)
                 .id(ACTION_ENABLE_IP_LOCATE)
-                .title("自动使用IP定位")
+                .title("自动使用天气定位")
                 .description("应用启动时自动定位")
                 .checkSetId(CHECK_SET_ID)
                 .checked(useIpLocation)
@@ -185,10 +185,11 @@ class WeatherRegionSettingsFragment : GuidedStepSupportFragment() {
         lifecycleScope.launch {
             try {
                 Log.d(TAG, "开始自动定位...")
-                val result = locationRepository?.autoLocate()
-                Log.d(TAG, "autoLocate() 返回: $result")
-                if (result != null) {
-                    val (cityName, adcode) = result
+                val weather = weatherRepository.getWeather()
+                Log.d(TAG, "weather API autoLocate 返回: $weather")
+                if (weather != null) {
+                    val cityName = weather.city
+                    val adcode = weather.adcode
                     Log.d(TAG, "自动定位成功: cityName=$cityName, adcode=$adcode")
                     // 保存到SharedPreferences
                     val prefs = requireContext().getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -200,7 +201,7 @@ class WeatherRegionSettingsFragment : GuidedStepSupportFragment() {
                     // 返回上一页
                     finishGuidedStepSupportFragments()
                 } else {
-                    Log.w(TAG, "自动定位失败，未获取到城市和adcode")
+                    Log.w(TAG, "自动定位失败，未获取到天气结果")
                     Toast.makeText(requireContext(), "定位失败，请手动选择城市", Toast.LENGTH_LONG).show()
                 }
             } catch (e: Exception) {

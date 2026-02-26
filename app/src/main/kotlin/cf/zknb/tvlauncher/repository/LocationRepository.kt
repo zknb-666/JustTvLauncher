@@ -9,8 +9,6 @@ import okhttp3.Request
 import org.bouncycastle.jce.provider.BouncyCastleProvider
 import org.bouncycastle.jsse.provider.BouncyCastleJsseProvider
 import org.json.JSONObject
-import java.io.BufferedReader
-import java.io.InputStreamReader
 import java.security.Security
 import java.util.concurrent.TimeUnit
 
@@ -24,9 +22,10 @@ class LocationRepository(private val context: Context) {
 
     companion object {
         private const val TAG = "LocationRepository"
-        // 使用 优创API 高精度IP定位接口（https://apis.uctb.cn/api/high）
-        // 不传 ip 参数时默认查询当前请求IP
-        private const val IP_API_URL = "https://apis.uctb.cn/api/high"
+        // 使用 uapis 天气 API 来做 IP 定位
+        // 直接访问 https://uapis.cn/api/v1/misc/weather 即可返回当前请求 IP 的天气数据，
+        // 其中包含省市区和 adcode，我们只需要解析定位信息即可，不再尝试获取本机 IP。
+        private const val IP_API_URL = "https://uapis.cn/api/v1/misc/weather"
         private const val TIMEOUT = 5000L
         
         // 初始化 BouncyCastle 以支持 Android 4.2+ 的 TLS 1.2（纯Java实现）
@@ -97,42 +96,36 @@ class LocationRepository(private val context: Context) {
      */
     suspend fun getCityByIp(): Pair<String, String>? = withContext(Dispatchers.IO) {
         try {
-            Log.d(TAG, "请求IP定位API: $IP_API_URL")
+            Log.d(TAG, "请求定位/天气API: $IP_API_URL")
             
             val request = Request.Builder()
-                .url(IP_API_URL) // 不传ip，接口自动使用当前请求IP
+                .url(IP_API_URL) // 不带参数时会根据请求IP自动返回位置和天气信息
                 .header("User-Agent", "Mozilla/5.0")
                 .build()
             
             okHttpClient.newCall(request).execute().use { response ->
                 val responseCode = response.code()
-                Log.d(TAG, "IP定位API响应码: $responseCode")
+                Log.d(TAG, "API响应码: $responseCode")
                 
                 if (response.isSuccessful) {
                     val responseBody = response.body()?.string()
-                    Log.d(TAG, "IP定位API响应内容: $responseBody")
+                    Log.d(TAG, "API响应内容: $responseBody")
                     
                     if (!responseBody.isNullOrEmpty()) {
                         try {
-                            val root = JSONObject(responseBody)
-                            val code = root.optInt("code", -1)
-                            if (code == 200) {
-                                val data = root.optJSONObject("data")
-                                val province = data?.optString("province", "") ?: ""
-                                val city = data?.optString("city", "") ?: ""
-                                val district = data?.optString("district", "") ?: ""
-                                Log.d(TAG, "解析到省市区县: province=$province, city=$city, district=$district")
-                                
-                                // 优先使用district作为定位结果，如果district为空则使用city
-                                val locationName = if (district.isNotEmpty()) district else city
-                                if (province.isNotEmpty() && locationName.isNotEmpty()) {
-                                    return@withContext Pair(locationName, province)
-                                }
-                            } else {
-                                Log.w(TAG, "API返回非200状态: $code")
+                            val json = JSONObject(responseBody)
+                            val province = json.optString("province", "")
+                            val city = json.optString("city", "")
+                            val district = json.optString("district", "")
+                            Log.d(TAG, "解析到省市区县: province=$province, city=$city, district=$district")
+
+                            // 优先使用district作为定位结果，如果district为空则使用city
+                            val locationName = if (district.isNotEmpty()) district else city
+                            if (province.isNotEmpty() && locationName.isNotEmpty()) {
+                                return@withContext Pair(locationName, province)
                             }
                         } catch (e: Exception) {
-                            Log.e(TAG, "解析IP定位API响应失败", e)
+                            Log.e(TAG, "解析定位API响应失败", e)
                         }
                     }
                 }
@@ -144,77 +137,6 @@ class LocationRepository(private val context: Context) {
         }
     }
 
-    /**
-     * 根据城市名称查找对应的adcode
-     * 从all_area_with_adcode_key.json中匹配城市或区县
-     * @param cityName 城市名称（如"北京市"）或区县名称（如"冷水滩区"）
-     * @param provinceName 省份名称（如"北京市"）
-     * @return adcode 或 null
-     */
-    suspend fun findAdcodeByCity(cityName: String, provinceName: String): String? = withContext(Dispatchers.IO) {
-        try {
-            Log.d(TAG, "查找adcode: cityName=$cityName, provinceName=$provinceName")
-            val inputStream = context.assets.open("all_area_with_adcode_key.json")
-            val reader = BufferedReader(InputStreamReader(inputStream))
-            val jsonString = reader.readText()
-            reader.close()
-            val json = JSONObject(jsonString as String)
-            val provinceKeys = json.keys()
-            while (provinceKeys.hasNext()) {
-                val provinceKey = provinceKeys.next()
-                val provinceObj = json.getJSONObject(provinceKey)
-                val provinceNameInData = provinceObj.getString("province_name")
-                if (provinceName.contains(provinceNameInData.replace("省", "").replace("市", "").replace("自治区", "").replace("特别行政区", ""), ignoreCase = false) ||
-                    provinceNameInData.contains(provinceName.replace("省", "").replace("市", "").replace("自治区", "").replace("特别行政区", ""), ignoreCase = false)) {
-                    val citiesObj = provinceObj.getJSONObject("city")
-                    val cityKeys = citiesObj.keys()
-                    while (cityKeys.hasNext()) {
-                        val cityKey = cityKeys.next()
-                        val cityObj = citiesObj.getJSONObject(cityKey)
-                        val cityNameInData = cityObj.getString("city_name")
-                        val cityAdcode = cityObj.getString("city_adcode")
-                        val cityNameSimplified = cityName.replace("市", "").replace("区", "").replace("县", "").replace("自治州", "").replace("盟", "")
-                        val cityNameInDataSimplified = cityNameInData.replace("市", "").replace("区", "").replace("县", "").replace("自治州", "").replace("盟", "")
-                        
-                        // 1. 首先尝试城市级别匹配
-                        Log.d(TAG, "对比城市: $cityNameSimplified vs $cityNameInDataSimplified")
-                        if (cityNameSimplified == cityNameInDataSimplified ||
-                            cityNameInData.contains(cityNameSimplified, ignoreCase = false) ||
-                            cityNameSimplified.contains(cityNameInDataSimplified, ignoreCase = false)) {
-                            Log.d(TAG, "找到匹配城市: $cityNameInData (adcode: $cityAdcode)")
-                            return@withContext cityAdcode
-                        }
-                        
-                        // 2. 如果城市级别匹配失败，尝试区县级别匹配
-                        if (cityObj.has("district")) {
-                            val districtObj = cityObj.getJSONObject("district")
-                            val districtKeys = districtObj.keys()
-                            while (districtKeys.hasNext()) {
-                                val districtKey = districtKeys.next()
-                                val districtData = districtObj.getJSONObject(districtKey)
-                                val districtNameInData = districtData.getString("district_name")
-                                val districtAdcode = districtData.getString("district_adcode")
-                                val districtNameInDataSimplified = districtNameInData.replace("市", "").replace("区", "").replace("县", "").replace("自治州", "").replace("盟", "")
-                                
-                                Log.d(TAG, "对比区县: $cityNameSimplified vs $districtNameInDataSimplified")
-                                if (cityNameSimplified == districtNameInDataSimplified ||
-                                    districtNameInData.contains(cityNameSimplified, ignoreCase = false) ||
-                                    cityNameSimplified.contains(districtNameInDataSimplified, ignoreCase = false)) {
-                                    Log.d(TAG, "找到匹配区县: $districtNameInData (adcode: $districtAdcode), 所属城市: $cityNameInData")
-                                    return@withContext districtAdcode
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            Log.w(TAG, "未找到匹配的城市或区县: $provinceName $cityName")
-            null
-        } catch (e: Exception) {
-            Log.e(TAG, "查找adcode失败", e)
-            null
-        }
-    }
 
     /**
      * 自动定位并获取城市adcode
@@ -222,13 +144,36 @@ class LocationRepository(private val context: Context) {
      */
     suspend fun autoLocate(): Pair<String, String>? {
         Log.d(TAG, "autoLocate() 开始...")
-        val location = getCityByIp()
-        Log.d(TAG, "getCityByIp() 返回: $location")
-        if (location == null) return null
-        val (cityName, provinceName) = location
-        val adcode = findAdcodeByCity(cityName, provinceName)
-        Log.d(TAG, "findAdcodeByCity() 返回: $adcode")
-        if (adcode == null) return null
-        return Pair(cityName, adcode)
+        // 直接使用同一个天气/定位接口获取adcode，避免再通过本地数据文件解析
+        try {
+            val request = Request.Builder()
+                .url(IP_API_URL)
+                .header("User-Agent", "Mozilla/5.0")
+                .build()
+
+            okHttpClient.newCall(request).execute().use { response ->
+                if (response.isSuccessful) {
+                    val body = response.body()?.string()
+                    Log.d(TAG, "autoLocate API 响应: $body")
+                    if (!body.isNullOrEmpty()) {
+                        val json = JSONObject(body)
+                        val province = json.optString("province", "")
+                        val city = json.optString("city", "")
+                        val district = json.optString("district", "")
+                        val adcode = json.optString("adcode", "")
+                        val locationName = if (district.isNotEmpty()) district else city
+                        if (locationName.isNotEmpty() && adcode.isNotEmpty()) {
+                            Log.d(TAG, "autoLocate 解析成功: $locationName ($adcode)")
+                            return Pair(locationName, adcode)
+                        }
+                    }
+                } else {
+                    Log.w(TAG, "autoLocate HTTP错误: ${response.code()}")
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "autoLocate 异常", e)
+        }
+        return null
     }
 }
