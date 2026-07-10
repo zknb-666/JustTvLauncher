@@ -28,6 +28,7 @@ class TvMonitorService : Service() {
         private val TV_PACKAGES = arrayOf(
             "com.tcl.tv",
             "com.iflytek.showcomesettings",
+            "com.tcl.showmessage",
             "com.konka.tvsettings",
             "com.hisense.ui",
             "com.jamdeo.tv.livetv"
