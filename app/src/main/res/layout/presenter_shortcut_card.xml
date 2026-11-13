@@ -6,6 +6,11 @@
     android:focusable="true"
     android:focusableInTouchMode="true">
 
+    <!--
+      旧配置使用 ellipsize="marquee" + marqueeRepeatLimit="marquee_forever"，
+      会让所有可见卡片持续 invalidate 重绘（1920x1080 / 双核 A9 上常驻掉帧）。
+      改为静态两行截断；需要完整名称时由聚焦卡片自行处理。
+    -->
     <TextView
         android:id="@+id/content"
         android:layout_width="@dimen/card_width"
@@ -13,9 +18,7 @@
         android:duplicateParentState="false"
         android:drawablePadding="4dp"
         android:gravity="center_vertical"
-        android:singleLine="false"
-        android:ellipsize="marquee"
-        android:marqueeRepeatLimit="marquee_forever"
+        android:maxLines="2"
+        android:ellipsize="end"
         tools:ignore="RtlHardcoded,RtlSymmetry" />
 </androidx.leanback.widget.BaseCardView>
-<!--If liking transparent backgroud can using ListRowCardView instead.-->

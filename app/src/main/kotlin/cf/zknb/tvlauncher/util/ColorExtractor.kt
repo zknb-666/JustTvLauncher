@@ -4,25 +4,45 @@ import android.app.WallpaperManager
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Color
-import android.graphics.Rect
 import android.graphics.drawable.BitmapDrawable
 import android.graphics.drawable.Drawable
+import java.util.concurrent.ConcurrentHashMap
 import kotlin.math.sqrt
 
 /**
- * 图标颜色提取工具
+ * 图标 / 壁纸颜色提取工具
  * 兼容 Android 4.2 (API 17+)
+ *
+ * 性能说明（针对双核 A9 / Dalvik 的老电视）：
+ * - 取色需要把 Drawable 画进 ARGB_8888 Bitmap 再逐像素统计，属于重操作。
+ * - 旧实现每次调用都会新建整张壁纸大小的 Bitmap（1920x1080 约 8MB）且从不回收，
+ *   在时间 tick、焦点变化、天气刷新时反复触发，直接造成 Dalvik GC stop-the-world 掉帧。
+ * - 现在按采样区域做 64px 网格缓存，并回收所有临时 Bitmap。壁纸变化时调用 clearWallpaperCache()。
  */
 object ColorExtractor {
 
+    private const val DEFAULT_COLOR = 0xFF424242.toInt()
+    private const val GRID = 64
+
+    /** key: 量化后的采样区域，value: 主色调 */
+    private val wallpaperColorCache = ConcurrentHashMap<Long, Int>()
+
+    /** 壁纸更换后必须调用，否则会继续复用旧壁纸的颜色 */
+    fun clearWallpaperCache() {
+        wallpaperColorCache.clear()
+    }
+
+    private fun cacheKey(x: Int, y: Int, width: Int, height: Int): Long {
+        val gx = (x / GRID).toLong() and 0xFFFFL
+        val gy = (y / GRID).toLong() and 0xFFFFL
+        val gw = (width / GRID).toLong() and 0xFFFFL
+        val gh = (height / GRID).toLong() and 0xFFFFL
+        return (gx shl 48) or (gy shl 32) or (gw shl 16) or gh
+    }
+
     /**
-     * 从壁纸的特定区域提取颜色
-     * @param context 上下文
-     * @param x 区域中心X坐标（像素）
-     * @param y 区域中心Y坐标（像素）
-     * @param sampleWidth 采样宽度（像素）
-     * @param sampleHeight 采样高度（像素）
-     * @return 该区域的主色调
+     * 从壁纸的特定区域提取颜色（带缓存）。
+     * 同一区域在壁纸未变化前只会真正解码一次。
      */
     fun extractColorFromWallpaper(
         context: Context,
@@ -31,199 +51,151 @@ object ColorExtractor {
         sampleWidth: Int = 200,
         sampleHeight: Int = 100
     ): Int {
-        try {
-            val wallpaperManager = WallpaperManager.getInstance(context)
-            val wallpaperDrawable = wallpaperManager.drawable ?: return Color.parseColor("#424242")
-            
+        val key = cacheKey(x, y, sampleWidth, sampleHeight)
+        wallpaperColorCache[key]?.let { return it }
+
+        val result = try {
+            val wallpaperDrawable = WallpaperManager.getInstance(context).drawable
+                ?: return DEFAULT_COLOR
+
+            var createdFullBitmap: Bitmap? = null
             val wallpaperBitmap = when (wallpaperDrawable) {
                 is BitmapDrawable -> wallpaperDrawable.bitmap
                 else -> {
                     val width = wallpaperDrawable.intrinsicWidth
                     val height = wallpaperDrawable.intrinsicHeight
-                    if (width <= 0 || height <= 0) return Color.parseColor("#424242")
-                    
+                    if (width <= 0 || height <= 0) return DEFAULT_COLOR
                     val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+                    createdFullBitmap = bitmap
                     val canvas = android.graphics.Canvas(bitmap)
                     wallpaperDrawable.setBounds(0, 0, canvas.width, canvas.height)
                     wallpaperDrawable.draw(canvas)
                     bitmap
                 }
             }
-            
-            // 计算采样区域
+
             val left = (x - sampleWidth / 2).coerceIn(0, wallpaperBitmap.width - 1)
             val top = (y - sampleHeight / 2).coerceIn(0, wallpaperBitmap.height - 1)
             val right = (x + sampleWidth / 2).coerceIn(left + 1, wallpaperBitmap.width)
             val bottom = (y + sampleHeight / 2).coerceIn(top + 1, wallpaperBitmap.height)
-            
-            // 提取该区域的bitmap
+
             val regionBitmap = Bitmap.createBitmap(
-                wallpaperBitmap,
-                left,
-                top,
-                right - left,
-                bottom - top
+                wallpaperBitmap, left, top, right - left, bottom - top
             )
-            
             val color = extractDominantColor(regionBitmap)
-            
-            // 清理临时bitmap
-            if (regionBitmap != wallpaperBitmap) {
-                regionBitmap.recycle()
-            }
-            
-            return color
-        } catch (e: Exception) {
-            return Color.parseColor("#424242")
+            regionBitmap.recycle()
+            // 只回收自己创建的 Bitmap，绝不回收 WallpaperManager 持有的 bitmap
+            createdFullBitmap?.recycle()
+            color
+        } catch (e: Throwable) {
+            DEFAULT_COLOR
         }
+
+        wallpaperColorCache[key] = result
+        return result
     }
 
-    /**
-     * 根据背景色获取适合的前景色（黑色或白色）
-     * @param backgroundColor 背景颜色
-     * @return 如果背景是亮色返回黑色，如果背景是暗色返回白色
-     */
-    fun getContrastColor(backgroundColor: Int): Int {
-        return if (isDarkColor(backgroundColor)) {
-            Color.WHITE
-        } else {
-            Color.BLACK
-        }
-    }
-    
-    /**
-     * 根据背景色获取带透明度的对比色
-     * @param backgroundColor 背景颜色
-     * @param alpha 透明度 (0-255)
-     * @return 带透明度的对比色
-     */
+    fun getContrastColor(backgroundColor: Int): Int =
+        if (isDarkColor(backgroundColor)) Color.WHITE else Color.BLACK
+
     fun getContrastColorWithAlpha(backgroundColor: Int, alpha: Int = 255): Int {
         val baseColor = getContrastColor(backgroundColor)
         return Color.argb(alpha, Color.red(baseColor), Color.green(baseColor), Color.blue(baseColor))
     }
 
     /**
-     * 从 Drawable 提取主色调
+     * 从 Drawable 提取主色调。
+     * 注意：本方法仍会创建临时 Bitmap，调用方应做进程级缓存（见 ShortcutCardPresenter）。
      */
     fun extractColor(drawable: Drawable?): Int {
-        if (drawable == null) {
-            return Color.parseColor("#424242") // 默认深灰色
-        }
+        if (drawable == null) return DEFAULT_COLOR
 
-        val bitmap = when (drawable) {
-            is BitmapDrawable -> drawable.bitmap
-            else -> {
-                // 将 Drawable 转换为 Bitmap
+        return try {
+            val bitmap: Bitmap
+            val ownsBitmap: Boolean
+            if (drawable is BitmapDrawable) {
+                bitmap = drawable.bitmap
+                ownsBitmap = false
+            } else {
                 val width = if (drawable.intrinsicWidth > 0) drawable.intrinsicWidth else 64
                 val height = if (drawable.intrinsicHeight > 0) drawable.intrinsicHeight else 64
-                val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+                bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+                ownsBitmap = true
                 val canvas = android.graphics.Canvas(bitmap)
                 drawable.setBounds(0, 0, canvas.width, canvas.height)
                 drawable.draw(canvas)
-                bitmap
             }
-        }
 
-        return extractDominantColor(bitmap)
+            val color = extractDominantColor(bitmap)
+            if (ownsBitmap) bitmap.recycle()
+            color
+        } catch (e: Throwable) {
+            DEFAULT_COLOR
+        }
     }
 
-    /**
-     * 从 Bitmap 提取主色调
-     */
     private fun extractDominantColor(bitmap: Bitmap): Int {
         val scaledBitmap = if (bitmap.width > 64 || bitmap.height > 64) {
-            // 缩小图片以提高性能
             Bitmap.createScaledBitmap(bitmap, 64, 64, true)
         } else {
             bitmap
         }
 
-        val colorMap = mutableMapOf<Int, Int>()
-        val pixels = IntArray(scaledBitmap.width * scaledBitmap.height)
-        scaledBitmap.getPixels(pixels, 0, scaledBitmap.width, 0, 0, 
-            scaledBitmap.width, scaledBitmap.height)
+        return try {
+            val pixels = IntArray(scaledBitmap.width * scaledBitmap.height)
+            scaledBitmap.getPixels(
+                pixels, 0, scaledBitmap.width, 0, 0,
+                scaledBitmap.width, scaledBitmap.height
+            )
 
-        // 统计颜色出现次数（忽略透明和接近白色/黑色的颜色）
-        for (pixel in pixels) {
-            val alpha = Color.alpha(pixel)
-            if (alpha < 128) continue // 忽略透明像素
+            val colorMap = HashMap<Int, Int>()
+            for (pixel in pixels) {
+                if (Color.alpha(pixel) < 128) continue
+                val red = Color.red(pixel)
+                val green = Color.green(pixel)
+                val blue = Color.blue(pixel)
+                val brightness = (red + green + blue) / 3
+                if (brightness > 240 || brightness < 15) continue
+                val maxChannel = maxOf(red, green, blue)
+                val minChannel = minOf(red, green, blue)
+                val saturation = if (maxChannel > 0) {
+                    (maxChannel - minChannel).toFloat() / maxChannel
+                } else 0f
+                if (saturation < 0.15f) continue
+                val quantizedColor = quantizeColor(pixel)
+                colorMap[quantizedColor] = (colorMap[quantizedColor] ?: 0) + 1
+            }
 
-            val red = Color.red(pixel)
-            val green = Color.green(pixel)
-            val blue = Color.blue(pixel)
-
-            // 忽略接近白色或黑色的颜色
-            val brightness = (red + green + blue) / 3
-            if (brightness > 240 || brightness < 15) continue
-
-            // 忽略饱和度太低的颜色（灰色）
-            val maxChannel = maxOf(red, green, blue)
-            val minChannel = minOf(red, green, blue)
-            val saturation = if (maxChannel > 0) {
-                (maxChannel - minChannel).toFloat() / maxChannel
-            } else 0f
-            if (saturation < 0.15f) continue
-
-            // 颜色量化，减少颜色种类
-            val quantizedColor = quantizeColor(pixel)
-            colorMap[quantizedColor] = (colorMap[quantizedColor] ?: 0) + 1
-        }
-
-        // 找出出现次数最多的颜色
-        val dominantColor = colorMap.maxByOrNull { it.value }?.key
-
-        return if (dominantColor != null) {
-            // 调整颜色使其更适合作为背景色
-            adjustColorForBackground(dominantColor)
-        } else {
-            Color.parseColor("#424242") // 默认深灰色
+            val dominantColor = colorMap.maxByOrNull { it.value }?.key
+            if (dominantColor != null) adjustColorForBackground(dominantColor) else DEFAULT_COLOR
+        } finally {
+            if (scaledBitmap !== bitmap) scaledBitmap.recycle()
         }
     }
 
-    /**
-     * 颜色量化，将相似的颜色归为一类
-     */
     private fun quantizeColor(color: Int): Int {
-        val step = 32 // 量化步长
-        val r = (Color.red(color) / step) * step
-        val g = (Color.green(color) / step) * step
-        val b = (Color.blue(color) / step) * step
-        return Color.rgb(r, g, b)
+        val step = 32
+        return Color.rgb(
+            (Color.red(color) / step) * step,
+            (Color.green(color) / step) * step,
+            (Color.blue(color) / step) * step
+        )
     }
 
-    /**
-     * 调整颜色使其更适合作为背景色
-     */
     private fun adjustColorForBackground(color: Int): Int {
         val hsv = FloatArray(3)
         Color.colorToHSV(color, hsv)
-
-        // 降低亮度，使背景不会太亮
-        if (hsv[2] > 0.6f) {
-            hsv[2] = 0.5f
-        } else if (hsv[2] < 0.3f) {
-            hsv[2] = 0.35f
-        }
-
-        // 适当降低饱和度，避免过于鲜艳
-        if (hsv[1] > 0.8f) {
-            hsv[1] = 0.7f
-        }
-
+        if (hsv[2] > 0.6f) hsv[2] = 0.5f else if (hsv[2] < 0.3f) hsv[2] = 0.35f
+        if (hsv[1] > 0.8f) hsv[1] = 0.7f
         return Color.HSVToColor(hsv)
     }
 
-    /**
-     * 判断颜色是否为深色
-     */
     fun isDarkColor(color: Int): Boolean {
         val red = Color.red(color)
         val green = Color.green(color)
         val blue = Color.blue(color)
         val brightness = sqrt(
-            red * red * 0.299 +
-            green * green * 0.587 +
-            blue * blue * 0.114
+            red * red * 0.299 + green * green * 0.587 + blue * blue * 0.114
         )
         return brightness < 130
     }

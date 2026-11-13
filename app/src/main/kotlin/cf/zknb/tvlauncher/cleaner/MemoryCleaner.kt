@@ -68,10 +68,17 @@ object MemoryCleaner {
                 var killedCount = 0
                 
                 for (processInfo in runningApps) {
-                    // 不要杀死自己的进程
-                    if (processInfo.processName == myPackage) {
-                        continue
-                    }
+                    val processName = processInfo.processName
+
+                    // 跳过自己、系统进程和厂商常驻服务。
+                    // 这些进程被杀后会被 alarm / 广播立刻拉起，反而引发
+                    // 「进程重启 + dex 加载 + 全系统 GC」的风暴，越清越卡。
+                    if (processName == myPackage) continue
+                    if (processInfo.uid < android.os.Process.FIRST_APPLICATION_UID) continue
+                    if (processName.startsWith("com.tcl.") ||
+                        processName.startsWith("com.iflytek.") ||
+                        processName.startsWith("com.android.") ||
+                        processName.startsWith("com.qiyi.")) continue
                     
                     // 只杀死后台进程
                     if (processInfo.importance >= ActivityManager.RunningAppProcessInfo.IMPORTANCE_BACKGROUND) {
@@ -88,11 +95,10 @@ object MemoryCleaner {
                 Log.d(TAG, "已清理 $killedCount 个后台进程")
             }
             
-            // 请求垃圾回收
-            System.gc()
-            
-            // 等待一下让系统有时间回收内存
-            Thread.sleep(500)
+            // 不主动调用 System.gc()：Dalvik 的 GC 是 stop-the-world，
+            // 会连带暂停桌面主线程，用户刚点完清理就会感到明显一卡。
+            // 等待系统自行回收即可。
+            Thread.sleep(200)
             
             val memoryAfter = getMemoryInfo(context)
             val freedMemory = memoryAfter.availableMemory - memoryBefore.availableMemory

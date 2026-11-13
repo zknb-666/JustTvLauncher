@@ -33,7 +33,9 @@ import cf.zknb.tvlauncher.settings.SettingsActivity
 import cf.zknb.tvlauncher.tvinput.TvSourceController
 import cf.zknb.tvlauncher.cleaner.MemoryCleaner
 import cf.zknb.tvlauncher.model.Shortcut
+import cf.zknb.tvlauncher.model.ShortcutGroup
 import cf.zknb.tvlauncher.model.Weather
+import cf.zknb.tvlauncher.repository.ShortcutRepository
 import cf.zknb.tvlauncher.repository.WeatherRepository
 import cf.zknb.tvlauncher.util.QWeatherIconsUtil
 import cf.zknb.tvlauncher.util.ColorExtractor
@@ -118,11 +120,7 @@ class BrowseFragment : BrowseSupportFragment() {
                     // 焦点在应用快捷方式卡片上
                     // 更新当前焦点的应用快捷方式
                     currentFocusedShortcut = item
-                    // 这里可以处理焦点变化的逻辑，例如：
-                    // 1. 记录当前焦点的应用
-                    // 2. 显示应用的详细信息
-                    // 3. 处理菜单键或信息键的逻辑
-                    Log.d("BrowseFragment", "Focus on shortcut: ${item.title} (${item.id})")
+                    // 焦点移动是遥控器的高频事件，避免在这里做字符串拼接与日志写入
                 }
                 else -> {
                     // 焦点不在应用快捷方式卡片上
@@ -132,17 +130,33 @@ class BrowseFragment : BrowseSupportFragment() {
         }
     }
 
+    /** 零分配的列表指纹，用于判断是否需要重建 Adapter */
+    private fun contentFingerprint(groups: List<ShortcutGroup>): Int {
+        var hash = 7
+        for (g in groups) {
+            hash = 31 * hash + g.category.hashCode()
+            for (s in g.shortcutList) {
+                hash = 31 * hash + s.id.hashCode()
+                hash = 31 * hash + s.openCount
+            }
+        }
+        return hash
+    }
+
     /**
-     * 更新当前时间显示
-     *
-     * 向主线程发布一个可运行项，以当前时间更新片段标题
+     * 更新当前时间显示。
+     * 注意：这里只设置文本。壁纸取色曾经放在每分钟的 tick 里，会重复解码整张
+     * 1920x1080 壁纸 Bitmap，造成周期性 GC 停顿，现统一由 applyWallpaperColors() 处理。
      */
     private fun setTick() = handler.post {
-        val timeStr = dateFormat.format(Date())
-        title = timeStr
-        
-        // 根据壁纸颜色调整标题（时间）文字颜色
+        title = dateFormat.format(Date())
+    }
+
+    /** 一次性把标题、天气、设置图标的颜色对齐壁纸（结果带缓存） */
+    private fun applyWallpaperColors() {
         adjustTitleColor()
+        adjustWeatherColor()
+        updateSettingsIconColor()
     }
     
     /**
@@ -244,12 +258,24 @@ class BrowseFragment : BrowseSupportFragment() {
      * 加载天气信息
      */
     private fun loadWeather() {
-        // 尝试先显示缓存中的天气
+        // 尝试先显示缓存中的天气（纯本地读取，无网络、无 TLS）
         val cached = weatherRepository.loadCachedWeather(requireContext())
         if (cached != null) {
             currentWeather = cached
             updateWeather()
         }
+
+        // 节流：Android 4.2 上 BouncyCastle 纯 Java TLS 握手在双核 A9 上非常昂贵，
+        // 旧实现每次 onStart（每次返回桌面）都发起一次，直接拖慢桌面。
+        // 半小时内复用缓存，不重复建连。
+        val weatherPrefs = requireContext().getSharedPreferences("weather_settings", Context.MODE_PRIVATE)
+        val now = System.currentTimeMillis()
+        val lastFetch = weatherPrefs.getLong(KEY_LAST_WEATHER_FETCH, 0L)
+        if (now - lastFetch < WEATHER_REFRESH_INTERVAL_MS) {
+            Log.d("BrowseFragment", "天气数据在有效期内，跳过网络请求")
+            return
+        }
+        weatherPrefs.edit().putLong(KEY_LAST_WEATHER_FETCH, now).apply()
 
         lifecycleScope.launch {
             try {
@@ -625,11 +651,6 @@ class BrowseFragment : BrowseSupportFragment() {
                         // 将图标添加到标题栏
                         titleGroup.addView(settingsIcon, layoutParams)
                         
-                        // 延迟调整颜色，确保布局完成
-                        handler.postDelayed({
-                            updateSettingsIconColor()
-                        }, 100)
-                        
                         Log.d("BrowseFragment", "Settings icon added successfully")
                     }
                 }
@@ -741,6 +762,9 @@ class BrowseFragment : BrowseSupportFragment() {
             if (intent.getBooleanExtra(Intent.EXTRA_REPLACING, false)) {
                 return
             }
+            // 应用被替换后图标可能变化，让主色与图标缓存都失效
+            ShortcutCardPresenter.invalidateColors()
+            ShortcutRepository.invalidateCache()
             if (Intent.ACTION_PACKAGE_REMOVED == intent.action) {
                 val packageName = intent.data!!.schemeSpecificPart
                 viewModel.removePackage(packageName)
@@ -773,11 +797,10 @@ class BrowseFragment : BrowseSupportFragment() {
     private val wallpaperChangedReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             if (Intent.ACTION_WALLPAPER_CHANGED == intent?.action) {
-                // 延迟更新，确保壁纸已经加载
+                // 壁纸换了必须让取色缓存失效，否则会一直沿用旧壁纸的对比色
+                ColorExtractor.clearWallpaperCache()
                 handler.postDelayed({
-                    adjustTitleColor()
-                    adjustWeatherColor()
-                    updateSettingsIconColor()
+                    applyWallpaperColors()
                     Log.d("BrowseFragment", "UI colors updated after wallpaper change")
                 }, 500)
             }

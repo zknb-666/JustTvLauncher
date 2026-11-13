@@ -5,26 +5,25 @@ import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.os.Handler
+import android.os.HandlerThread
 import android.os.IBinder
-import android.os.Looper
 import android.util.Log
 
 /**
- * TV输入源监控服务
- * 
- * 持续监控前台应用，当检测到TV应用在前台且本应用不在前台时，切换输入源停止音频
- * 
- * @author JustTvLauncher
+ * TV 输入源监控服务
+ *
+ * 性能优化：
+ * - 旧实现挂在桌面进程的【主线程】Looper 上，每 2 秒执行一次 getRunningTasks(1)
+ *   并可能触发 Class.forName 反射，会周期性打断 UI 线程、阻止 CPU 休眠。
+ * - 现在放到独立 HandlerThread，间隔放宽到 10 秒，且只在前后台应用真正变化时
+ *   才执行切换（状态去重）。
  */
 class TvMonitorService : Service() {
-    
+
     companion object {
         private const val TAG = "TvMonitorService"
-        
-        /** 监控间隔时间（毫秒） */
-        private const val MONITOR_INTERVAL = 2000L
-        
-        /** TV应用包名列表 */
+        private const val MONITOR_INTERVAL = 10000L
+
         private val TV_PACKAGES = arrayOf(
             "com.tcl.tv",
             "com.iflytek.showcomesettings",
@@ -34,88 +33,71 @@ class TvMonitorService : Service() {
             "com.jamdeo.tv.livetv"
         )
     }
-    
-    private val handler = Handler(Looper.getMainLooper())
+
+    private val handlerThread = HandlerThread("tv-monitor").apply { start() }
+    private val handler by lazy { Handler(handlerThread.looper) }
     private var activityManager: ActivityManager? = null
     private var isRunning = false
-    
+
+    /** 只在顶层应用变化时做处理，避免周期性重复反射 */
+    @Volatile
+    private var lastTopPackage: String? = null
+
     private val monitorTask = object : Runnable {
         override fun run() {
-            if (isRunning) {
+            if (!isRunning) return
+            try {
                 checkAndSwitchInputSource()
-                handler.postDelayed(this, MONITOR_INTERVAL)
+            } catch (t: Throwable) {
+                Log.e(TAG, "monitor task failed", t)
             }
+            handler.postDelayed(this, MONITOR_INTERVAL)
         }
     }
-    
+
     override fun onCreate() {
         super.onCreate()
-        Log.d(TAG, "TvMonitorService onCreate")
         activityManager = getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager
     }
-    
+
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        Log.d(TAG, "TvMonitorService onStartCommand")
-        
         if (!isRunning) {
             isRunning = true
             handler.post(monitorTask)
-            Log.d(TAG, "开始监控TV应用")
         }
-        
         return START_STICKY
     }
-    
+
     override fun onDestroy() {
-        super.onDestroy()
-        Log.d(TAG, "TvMonitorService onDestroy")
         isRunning = false
-        handler.removeCallbacks(monitorTask)
+        handler.removeCallbacksAndMessages(null)
+        handlerThread.quit()
+        super.onDestroy()
     }
-    
-    override fun onBind(intent: Intent?): IBinder? {
-        return null
-    }
-    
-    /**
-     * 检查前台应用并切换输入源
-     */
+
+    override fun onBind(intent: Intent?): IBinder? = null
+
     private fun checkAndSwitchInputSource() {
         try {
             val manager = activityManager ?: return
-            
-            // 获取前台任务
             @Suppress("DEPRECATION")
             val tasks = manager.getRunningTasks(1)
-            if (tasks.isNullOrEmpty()) {
-                return
-            }
-            
+            if (tasks.isNullOrEmpty()) return
+
             val topPackage = tasks[0].topActivity?.packageName ?: return
-            val myPackage = packageName
-            
-            // 检测：如果前台不是我们的app
-            if (myPackage != topPackage) {
-                // 检查是否是TV应用在前台
-                val isTvAppForeground = TV_PACKAGES.any { it == topPackage }
-                
-                if (isTvAppForeground) {
-                    Log.d(TAG, "检测到TV应用在前台: $topPackage, 但我们的app不在前台，保持不操作")
-                    // TV应用正常在前台，不需要切换
-                } else {
-                    // 前台是其他应用（桌面或其他app），切换输入源停止TV音频
-                    Log.d(TAG, "检测到其他应用在前台: $topPackage, 切换TV输入源")
-                    switchTvInputSource()
-                }
-            }
+            if (topPackage == lastTopPackage) return
+            lastTopPackage = topPackage
+
+            if (topPackage == packageName) return
+            if (TV_PACKAGES.any { it == topPackage }) return
+
+            Log.d(TAG, "检测到其他应用在前台: $topPackage, 切换TV输入源")
+            switchTvInputSource()
         } catch (e: Exception) {
             Log.e(TAG, "检查前台应用失败", e)
         }
     }
-    
-    /**
-     * 切换TV输入源停止音频
-     */
+
     private fun switchTvInputSource() {
         TvInputSourceSwitcher.switchTvInputSource(this)
     }
