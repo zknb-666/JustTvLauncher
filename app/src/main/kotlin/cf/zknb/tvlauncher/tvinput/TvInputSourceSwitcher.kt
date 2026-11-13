@@ -59,6 +59,8 @@ object TvInputSourceSwitcher {
     
     /**
      * TCL电视切换输入源到STORAGE
+     *
+     * 已在 STORAGE 上时直接返回，避免回桌面时反复走 binder 切换（桌面会被反复重绘）。
      */
     private fun switchTclInputSource(context: Context): Boolean {
         return try {
@@ -68,16 +70,23 @@ object TvInputSourceSwitcher {
                 .invoke(null, context)
             
             val inputSourceClass = Class.forName("com.tcl.tvmanager.vo.EnTCLInputSource")
-            val enumConstants = inputSourceClass.enumConstants
-            
-            if (enumConstants != null && enumConstants.size > 17) {
-                managerClass.getMethod("setInputSource", inputSourceClass)
-                    .invoke(managerInstance, enumConstants[17]) // STORAGE
-                Log.d(TAG, "TCL: 已切换TV输入源到STORAGE")
-                true
-            } else {
-                false
+            val storage = findStorageConstant(inputSourceClass) ?: return false
+
+            val current = try {
+                managerClass.getMethod("getCurrentInputSource").invoke(managerInstance)
+            } catch (e: Exception) {
+                // 部分固件没有该查询方法，查不到就照常切换
+                null
             }
+            if (current != null && current == storage) {
+                Log.d(TAG, "TCL: 当前已在STORAGE，跳过切换")
+                return true
+            }
+
+            managerClass.getMethod("setInputSource", inputSourceClass)
+                .invoke(managerInstance, storage)
+            Log.d(TAG, "TCL: 已切换TV输入源到STORAGE")
+            true
         } catch (e: ClassNotFoundException) {
             Log.d(TAG, "TCL: 未找到TTvCommonManager类")
             false
@@ -85,6 +94,18 @@ object TvInputSourceSwitcher {
             Log.e(TAG, "TCL: 切换输入源失败", e)
             false
         }
+    }
+
+    /**
+     * 取 STORAGE 对应的枚举常量
+     *
+     * 优先按常量名 EN_TCL_STORAGE 匹配：不同固件的枚举顺序不一致，硬编码下标会切错源；
+     * 只有名字都对不上时才退回历史下标 17。
+     */
+    private fun findStorageConstant(inputSourceClass: Class<*>): Any? {
+        val constants = inputSourceClass.enumConstants ?: return null
+        constants.firstOrNull { (it as? Enum<*>)?.name == "EN_TCL_STORAGE" }?.let { return it }
+        return if (constants.size > 17) constants[17] else null
     }
     
     /**

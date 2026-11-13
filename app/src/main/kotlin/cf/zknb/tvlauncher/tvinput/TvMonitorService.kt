@@ -88,10 +88,11 @@ class TvMonitorService : Service() {
             if (topPackage == lastTopPackage) return
             lastTopPackage = topPackage
 
-            if (topPackage == packageName) return
             if (TV_PACKAGES.any { it == topPackage }) return
 
-            Log.d(TAG, "检测到其他应用在前台: $topPackage, 切换TV输入源")
+            // 顶层应用是本启动器（按 Home 回到桌面）时同样要切回 STORAGE：
+            // 只认"非桌面"会漏掉回桌面这一步，画面会停在 DTV/HDMI 上
+            Log.d(TAG, "顶层应用变化: $topPackage, 切换TV输入源")
             switchTvInputSource()
         } catch (e: Exception) {
             Log.e(TAG, "检查前台应用失败", e)

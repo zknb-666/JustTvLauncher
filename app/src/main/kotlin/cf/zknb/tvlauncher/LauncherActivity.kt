@@ -15,10 +15,11 @@ import cf.zknb.tvlauncher.tvinput.TvSourceController
  * TV 启动器主 Activity
  *
  * 性能优化：
- * - 旧实现在 onCreate 和每次 onResume 都同步执行 switchTvInputSource()
+ * - 旧实现在 onCreate 和每次 onResume 都【同步】执行 switchTvInputSource()
  *   （Class.forName 反射 + binder 调用），并且在 onActivityResult 与 onResume
  *   各刷新一次应用列表，导致每次返回桌面都要全量重建 BrowseAdapter。
- * - 现在输入源切换只在首帧之后的后台线程做一次，列表只在数据确实变化后刷新一次。
+ * - 现在输入源切换改为每次回到前台时在后台线程做一次（切换器内先比对当前源，已就位则跳过），
+ *   列表只在数据确实变化后刷新一次。
  */
 class LauncherActivity : FragmentActivity() {
 
@@ -27,12 +28,6 @@ class LauncherActivity : FragmentActivity() {
         setContentView(R.layout.activity_launcher)
 
         startTvMonitorService()
-
-        // 反射查找 TVManager 在 Android 4.2 上代价很高且往往抛 ClassNotFoundException，
-        // 放到首帧之后的后台线程执行，不阻塞桌面冷启动。
-        window.decorView.post {
-            Thread({ switchTvInputSource() }, "tv-source-init").start()
-        }
     }
 
     private fun startTvMonitorService() {
@@ -47,9 +42,24 @@ class LauncherActivity : FragmentActivity() {
         }
     }
 
-    private fun switchTvInputSource() {
+    /**
+     * 回到桌面（含遥控器 Home 键从电视信源返回）时切回 STORAGE
+     *
+     * 原来只在 onCreate 切一次，Activity 以 singleTask 复用后按 Home 回来不会重建，
+     * 信源便停在 DTV/HDMI 上，桌面是黑的，直到点开某个应用才触发 TvMonitorService 切换。
+     * 反射查找 TVManager 在 Android 4.2 上开销大，仍放在后台线程；切换器内部会先比对
+     * 当前输入源，已在 STORAGE 时直接返回，反复回桌面不会反复切源。
+     */
+    private fun ensureStorageInputSource() {
         if (!TvSourceController.isDeviceSupported(this)) return
-        TvInputSourceSwitcher.switchTvInputSource(this)
+        Thread({
+            try {
+                val switched = TvInputSourceSwitcher.switchTvInputSource(this)
+                Log.d(TAG, "回到桌面切回STORAGE: $switched")
+            } catch (e: Exception) {
+                Log.e(TAG, "回到桌面切回STORAGE失败", e)
+            }
+        }, "tv-source-resume").start()
     }
 
     override fun onBackPressed() {}
@@ -98,6 +108,8 @@ class LauncherActivity : FragmentActivity() {
         // 从设置页 / 其它应用返回时，让列表有机会同步；
         // 内容未变化时 BrowseFragment 会跳过 Adapter 重建，代价极低。
         refreshBrowseList()
+        // 每次回到桌面（含遥控器 Home 键从电视信源返回）都把信源切回 STORAGE
+        ensureStorageInputSource()
     }
 
     private fun refreshBrowseList() {

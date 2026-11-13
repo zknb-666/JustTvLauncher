@@ -47,6 +47,12 @@ class TvSourceController(private val context: Context) {
         
         /** TCL TV应用包名 */
         private const val PKG_TCL = "com.tcl.tv"
+
+        /** TCL 信号源面板 action，与遥控器"信号源"键同一入口 */
+        private const val ACTION_TCL_CHOOSE_SOURCE = "com.tcl.intent.action.CHOOSE_SOURCE"
+
+        /** TCL 信号源面板 Activity */
+        private const val CLS_TCL_IN_SRC = "com.tcl.insrc.InSrcActivity"
         
         /**
          * 检测设备是否支持TV信号源功能
@@ -206,6 +212,18 @@ class TvSourceController(private val context: Context) {
     private fun openTclTvSource(): Boolean {
         return try {
             if (isPackageInstalled(PKG_TCL)) {
+                // 进入信源：拉起 TCL 自带的信号源面板（遥控器"信号源"键同一入口）
+                val sourceIntent = Intent(ACTION_TCL_CHOOSE_SOURCE).apply {
+                    setClassName(PKG_TCL, CLS_TCL_IN_SRC)
+                    flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+                }
+                if (context.packageManager.resolveActivity(sourceIntent, 0) != null) {
+                    context.startActivity(sourceIntent)
+                    currentTvPackage = PKG_TCL
+                    Log.d(TAG, "成功启动TCL信号源面板: $currentTvPackage")
+                    return true
+                }
+                // 个别固件没有信号源面板，退回原来的TVActivity入口
                 val intent = Intent().apply {
                     flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
                     setClassName(PKG_TCL, "$PKG_TCL.TVActivity")
