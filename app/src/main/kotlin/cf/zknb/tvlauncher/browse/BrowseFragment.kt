@@ -56,6 +56,9 @@ class BrowseFragment : BrowseSupportFragment() {
     
     companion object {
         private const val SCHEME_PACKAGE = "package"
+        private const val KEY_LAST_WEATHER_FETCH = "last_weather_fetch_ms"
+        private const val WEATHER_REFRESH_INTERVAL_MS = 30L * 60L * 1000L
+        private const val KEY_LAST_LAUNCHED_ID = "last_launched_shortcut_id"
         private val dateFormat = SimpleDateFormat("HH:mm", Locale.getDefault())
     }
     private val viewModel: BrowseViewModel by lazy {
@@ -69,6 +72,19 @@ class BrowseFragment : BrowseSupportFragment() {
     private var weatherIconView: TextView? = null
     private var weatherCityView: TextView? = null
     private var weatherInfoView: TextView? = null
+    private var lastContentHash = 0
+
+    /**
+     * 上次从这里启动的应用快捷方式 id。
+     * 退出该应用返回桌面后，需要把焦点恢复到它身上。
+     */
+    private var lastLaunchedShortcutId: String? = null
+
+    /**
+     * 标记：返回桌面后必须执行一次焦点恢复。
+     * 由“启动应用时”和“onResume”置位，在内容观察者里消费一次。
+     */
+    private var pendingFocusRestore = false
     
     /**
      * 当前焦点的应用快捷方式
@@ -105,9 +121,11 @@ class BrowseFragment : BrowseSupportFragment() {
                     } else {
                         // 普通应用启动
                         launch(item.id)
+                        // 记下启动的是哪个应用，返回桌面后把焦点恢复回来
+                        lastLaunchedShortcutId = item.id
+                        pendingFocusRestore = true
                         viewModel.incrementOpenCount(item)
                     }
-                    setSelect(item)
                 }
             }
         }
@@ -480,16 +498,63 @@ class BrowseFragment : BrowseSupportFragment() {
     }
 
     /**
+     * 按 id 把焦点恢复到对应应用卡片。
+     *
+     * 列表每次刷新都会重建对象，故用 findPositionById 而非对象引用查找。
+     * 通过 SelectedPosition 的 pending 机制，即便上一步刚重建了 Adapter，
+     * 焦点也会在行视图就绪后落到正确卡片上。
+     */
+    private fun restoreFocusTo(id: String) {
+        val pos = viewModel.findPositionById(id) ?: run {
+            Log.w("BrowseFragment", "返回桌面恢复焦点失败：找不到 $id（可能已被隐藏/卸载）")
+            lastLaunchedShortcutId = null
+            return
+        }
+        try {
+            val task = ListRowPresenter.SelectItemViewHolderTask(pos.second)
+            task.isSmoothScroll = false
+            // 略延迟一帧，确保新 Adapter 的行视图已经完成布局
+            handler.postDelayed({
+                rowsSupportFragment.setSelectedPosition(pos.first, false, task)
+                // 恢复成功后清空，避免之后从其它界面（如设置）返回时反复抢占焦点
+                lastLaunchedShortcutId = null
+            }, 80)
+        } catch (e: Exception) {
+            Log.e("BrowseFragment", "Failed to restore focus to $id", e)
+            lastLaunchedShortcutId = null
+        }
+    }
+
+    /**
      * 当视图创建完成时调用
      */
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
+        // 进程被杀后重建时，把“上次启动的应用”恢复出来，便于返回桌面后恢复焦点
+        savedInstanceState?.getString(KEY_LAST_LAUNCHED_ID)?.let { id ->
+            lastLaunchedShortcutId = id
+            pendingFocusRestore = true
+        }
         // observe LiveData with viewLifecycleOwner to avoid leaks
-        viewModel.browseContent.observe(viewLifecycleOwner) {
-            adapter = BrowseAdapter(it!!)
+        viewModel.browseContent.observe(viewLifecycleOwner) { groups ->
+            // 内容指纹：绝大多数 onResume 刷新后数据完全一致，此时跳过整张
+            // Adapter 的重建（旧版每次返回桌面都重建所有 Row 和卡片，是卡顿主因）
+            val hash = contentFingerprint(groups)
+            if (hash != lastContentHash) {
+                lastContentHash = hash
+                adapter = BrowseAdapter(groups)
+            }
+            // 返回桌面后恢复焦点：startActivity 离开再返回时，Leanback 的待选状态
+            // 会因 Adapter 重建（openCount 变化导致指纹变化）而丢失，这里显式补回来。
+            if (pendingFocusRestore) {
+                pendingFocusRestore = false
+                lastLaunchedShortcutId?.let { id -> restoreFocusTo(id) }
+            }
         }
         setupWeatherView()
         setupSettingsIcon()
+        // 标题栏三处自绘控件加完后，统一做一次壁纸取色（内部带缓存，只算一次）
+        handler.postDelayed({ applyWallpaperColors() }, 700)
     }
     
     /**
@@ -565,11 +630,6 @@ class BrowseFragment : BrowseSupportFragment() {
                         if (currentWeather != null) {
                             updateWeather()
                         }
-                        
-                        // 延迟调整颜色，确保布局完成
-                        handler.postDelayed({
-                            adjustWeatherColor()
-                        }, 100)
                         
                         Log.d("BrowseFragment", "Weather view added successfully")
                     }
@@ -702,6 +762,27 @@ class BrowseFragment : BrowseSupportFragment() {
         context.registerReceiver(timeTickReceiver, timeTickReceiver.getIntentFilter())
         context.registerReceiver(packageChangedReceiver, packageChangedReceiver.getIntentFilter())
         context.registerReceiver(wallpaperChangedReceiver, wallpaperChangedReceiver.getIntentFilter())
+    }
+
+    /**
+     * 从其它应用返回桌面时调用。
+     *
+     * 若此前从这里启动过某个应用，则标记需要在数据刷新后把焦点恢复到它。
+     * 真正的恢复动作在 browseContent 观察者里执行（那时 Adapter 已就绪）。
+     */
+    override fun onResume() {
+        super.onResume()
+        if (lastLaunchedShortcutId != null) {
+            pendingFocusRestore = true
+        }
+    }
+
+    /**
+     * 保存“上次启动的应用”id，保证进程被系统回收后重建仍能恢复焦点
+     */
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        lastLaunchedShortcutId?.let { outState.putString(KEY_LAST_LAUNCHED_ID, it) }
     }
 
     /**
