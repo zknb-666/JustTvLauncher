@@ -76,6 +76,13 @@
     <string name="wallpaper_open_picker_desc">Open system wallpaper picker</string>
     <string name="wallpaper_open_button">Open Wallpaper Picker</string>
     <string name="wallpaper_open_failed">Unable to open wallpaper picker</string>
+    <string name="wallpaper_bing_daily">Bing Daily Image</string>
+    <string name="wallpaper_bing_daily_desc">Automatically apply Bing daily wallpaper</string>
+    <string name="wallpaper_bing_apply_now">Apply today\'s wallpaper now</string>
+    <string name="wallpaper_bing_applied">Updated to today\'s Bing wallpaper</string>
+    <string name="wallpaper_bing_failed">Failed to update wallpaper, check network</string>
+    <string name="wallpaper_bing_enabled">Enabled</string>
+    <string name="wallpaper_bing_disabled">Disabled</string>
     <string name="hidden_app_unhidden">Application is visible</string>
     <string name="weather_city_selected">Selected: %1$s</string>
     <string name="hidden_apps_empty">No hidden applications</string>

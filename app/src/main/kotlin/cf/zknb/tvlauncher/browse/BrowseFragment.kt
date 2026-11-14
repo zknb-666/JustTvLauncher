@@ -40,6 +40,7 @@ import cf.zknb.tvlauncher.repository.ShortcutRepository
 import cf.zknb.tvlauncher.repository.WeatherRepository
 import cf.zknb.tvlauncher.util.QWeatherIconsUtil
 import cf.zknb.tvlauncher.util.ColorExtractor
+import cf.zknb.tvlauncher.util.BingWallpaperManager
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -889,6 +890,8 @@ class BrowseFragment : BrowseSupportFragment() {
         super.onStart()
         setTick() // 立即显示当前时间
         loadWeather() // 加载天气信息
+        // 每日自动应用 Bing 壁纸（内部有日期守卫，当天只真正下载一次）
+        lifecycleScope.launch { BingWallpaperManager.maybeUpdateDaily(requireContext()) }
         val context = requireContext()
         context.registerReceiver(timeTickReceiver, timeTickReceiver.getIntentFilter())
         context.registerReceiver(packageChangedReceiver, packageChangedReceiver.getIntentFilter())
@@ -951,6 +954,11 @@ class BrowseFragment : BrowseSupportFragment() {
         override fun onReceive(context: Context?, intent: Intent) {
             if (Intent.ACTION_TIME_TICK == intent.action) {
                 setTick()
+                // Launcher 常驻主屏时，跨零点后下一次 tick 即触发每日壁纸刷新
+                val ctx = (context ?: this@BrowseFragment.requireContext()).applicationContext
+                this@BrowseFragment.lifecycleScope.launch(Dispatchers.IO) {
+                    BingWallpaperManager.maybeUpdateDaily(ctx)
+                }
             }
         }
 

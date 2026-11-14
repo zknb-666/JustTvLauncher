@@ -76,6 +76,13 @@
     <string name="wallpaper_open_picker_desc">打开系统壁纸选择器</string>
     <string name="wallpaper_open_button">打开壁纸选择器</string>
     <string name="wallpaper_open_failed">无法打开壁纸选择器</string>
+    <string name="wallpaper_bing_daily">Bing 每日一图</string>
+    <string name="wallpaper_bing_daily_desc">每天自动应用 Bing 每日壁纸</string>
+    <string name="wallpaper_bing_apply_now">立即应用今日壁纸</string>
+    <string name="wallpaper_bing_applied">已更新为今日 Bing 壁纸</string>
+    <string name="wallpaper_bing_failed">壁纸更新失败，请检查网络</string>
+    <string name="wallpaper_bing_enabled">已开启</string>
+    <string name="wallpaper_bing_disabled">已关闭</string>
     <string name="hidden_app_unhidden">应用已显示</string>
     <string name="weather_city_selected">已选择：%1$s</string>
     <string name="hidden_apps_empty">暂无隐藏应用</string>
