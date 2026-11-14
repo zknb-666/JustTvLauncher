@@ -6,6 +6,7 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.graphics.Color
 import android.graphics.PorterDuff
+import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.GradientDrawable
 import android.os.Build
 import android.os.Bundle
@@ -80,6 +81,8 @@ class BrowseFragment : BrowseSupportFragment() {
     private var loadingContainer: LinearLayout? = null
     private var loadingIconView: ProgressBar? = null
     private var loadingTextView: TextView? = null
+    /** 自适应暗化遮罩：放在内容最底层，按壁纸亮度调整透明度 */
+    private var scrimView: View? = null
     private var lastContentHash = 0
 
     /**
@@ -178,13 +181,154 @@ class BrowseFragment : BrowseSupportFragment() {
         title = dateFormat.format(Date())
     }
 
-    /** 一次性把标题、天气、设置图标的颜色对齐壁纸（结果带缓存） */
+    /** 一次性把标题、天气、设置图标、分组标题的颜色对齐壁纸（结果带缓存） */
     private fun applyWallpaperColors() {
+        applyScrim()
         adjustTitleColor()
         adjustWeatherColor()
         updateSettingsIconColor()
+        adjustRowHeaderColors()
     }
-    
+
+    /**
+     * Leanback 分组标题（应用 / 系统应用 / 工具）默认是浅灰小字，
+     * 在亮色壁纸上对比不足。统一按自适应色着色并加轻微阴影，
+     * 保证任何壁纸下都清晰可读。
+     */
+    private fun adjustRowHeaderColors() {
+        try {
+            val root = view as? ViewGroup ?: return
+            var count = 0
+            tintRowHeaders(root) { count++ }
+            Log.d("BrowseFragment", "Row headers tinted adaptively: $count")
+        } catch (e: Exception) {
+            Log.e("BrowseFragment", "Failed to adjust row header colors", e)
+        }
+    }
+
+    private fun tintRowHeaders(group: ViewGroup, onTinted: () -> Unit) {
+        for (i in 0 until group.childCount) {
+            val child = group.getChildAt(i)
+            if (child is TextView &&
+                (child.id == androidx.leanback.R.id.row_header ||
+                    child.javaClass.simpleName == "RowHeaderView")
+            ) {
+                // 按该分组标题自己所在区域的真实亮度取色，与标题/天气/设置图标
+                // 使用同一套自适应逻辑，避免同一屏出现黑白不一致或黑字压暗底。
+                val location = IntArray(2)
+                child.getLocationOnScreen(location)
+                val x = location[0] + child.width / 2
+                val y = location[1] + child.height / 2
+                tintTextView(child, contrastColorForScrim(x, y, child.width, child.height))
+                onTinted()
+            }
+            if (child is ViewGroup) tintRowHeaders(child, onTinted)
+        }
+    }
+
+    /**
+     * 自适应暗化遮罩：在内容下方蒙一层半透明黑，亮度越高遮罩越深，
+     * 保证标题/天气/设置图标/应用卡片文字与图标在亮色壁纸上依旧清晰可读；
+     * 暗壁纸不遮罩（本身已可读）。遮罩仅在壁纸变化或启动时重算一次。
+     */
+    private fun setupScrim() {
+        try {
+            handler.postDelayed({
+                view?.let { rootView ->
+                    if (rootView is ViewGroup && scrimView == null) {
+                        scrimView = View(requireContext()).apply {
+                            background = ColorDrawable(Color.BLACK)
+                            isClickable = false
+                            isFocusable = false
+                        }
+                        // 插到根布局最底层（index 0），位于所有内容之下，不拦截输入
+                        rootView.addView(
+                            scrimView, 0,
+                            FrameLayout.LayoutParams(
+                                FrameLayout.LayoutParams.MATCH_PARENT,
+                                FrameLayout.LayoutParams.MATCH_PARENT
+                            )
+                        )
+                        applyScrim()
+                        Log.d("BrowseFragment", "Scrim view added")
+                    }
+                }
+            }, 500)
+        } catch (e: Exception) {
+            Log.e("BrowseFragment", "Failed to setup scrim", e)
+        }
+    }
+
+    /**
+     * 按壁纸亮区亮度设置遮罩透明度：
+     * 亮区亮度 ≤130（暗）不遮罩；越亮透明度越高，上限 0.5，兼顾可读性与壁纸观感。
+     */
+    private fun applyScrim() {
+        try {
+            scrimView?.let { scrim ->
+                val lum = ColorExtractor.getWallpaperLuminance(requireContext())
+                val alpha = if (lum <= 130) {
+                    0f
+                } else {
+                    val t = (lum - 130) / (255f - 130f) // 0..1
+                    (t * 0.5f).coerceIn(0f, 0.5f)
+                }
+                scrim.alpha = alpha
+                Log.d("BrowseFragment", "Scrim alpha=$alpha for luminance(90p)=$lum")
+            }
+        } catch (e: Exception) {
+            Log.e("BrowseFragment", "Failed to apply scrim", e)
+        }
+    }
+
+    /**
+     * 与自适应遮罩配套的文字/图标对比色。
+     *
+     * 基于该区域壁纸的「真实平均亮度」，再按遮罩 alpha 折算有效背景亮度：
+     *   effective = lum × (1 - alpha)
+     * 亮壁纸亮区 → 黑字；暗壁纸 → 白字；遮罩压暗后仍保持足够对比，
+     * 避免「按原始亮区选黑字 + 遮罩又把背景压暗」造成的双重低对比。
+     *
+     * 不使用 extractColorFromWallpaper 的主色调：它经过归一化（明度被压到 0.3~0.5），
+     * 几乎总被判为暗色而恒返回白色，正是亮壁纸文字看不清的根因。
+     */
+    private fun contrastColorForScrim(x: Int, y: Int, width: Int, height: Int): Int {
+        return try {
+            // 布局未完成时 getLocationOnScreen 会返回 (0,0) 且宽高为 0，
+            // 此时局部取样退化成同一单点，改用整张壁纸亮区亮度（90 分位）更可靠。
+            val layoutReady = width > 0 && height > 0 && (x != 0 || y != 0)
+            val lum = if (layoutReady) {
+                ColorExtractor.getRegionLuminance(requireContext(), x, y, width, height)
+            } else {
+                ColorExtractor.getWallpaperLuminance(requireContext())
+            }
+            val alpha = scrimView?.alpha ?: 0f
+            val effective = (lum * (1f - alpha)).toInt()
+            val color = if (effective >= 130) Color.BLACK else Color.WHITE
+            Log.d(
+                "BrowseFragment",
+                "Adaptive text (${if (layoutReady) "region" else "global"}) at ($x,$y): " +
+                    "lum=$lum alpha=$alpha effective=$effective " +
+                    "-> ${if (color == Color.BLACK) "BLACK" else "WHITE"}"
+            )
+            color
+        } catch (e: Exception) {
+            Color.WHITE
+        }
+    }
+
+    /** 给自绘文字设置自适应颜色并加轻微阴影，提升花哨/亮色壁纸上的可读性 */
+    private fun tintTextView(tv: TextView?, color: Int) {
+        tv ?: return
+        tv.setTextColor(color)
+        val shadow = if (color == Color.WHITE) {
+            Color.argb(180, 0, 0, 0)
+        } else {
+            Color.argb(110, 255, 255, 255)
+        }
+        tv.setShadowLayer(2f, 1f, 1f, shadow)
+    }
+
     /**
      * 根据壁纸颜色调整标题文字颜色
      */
@@ -199,18 +343,12 @@ class BrowseFragment : BrowseSupportFragment() {
                     titleView.getLocationOnScreen(location)
                     val x = location[0] + titleView.width / 2
                     val y = location[1] + titleView.height / 2
-                    
-                    // 从壁纸该位置提取颜色
-                    val bgColor = ColorExtractor.extractColorFromWallpaper(
-                        requireContext(),
-                        x, y,
-                        titleView.width,
-                        titleView.height
+
+                    // 按区域真实亮度 + 遮罩折算后的有效亮度取黑白
+                    tintTextView(
+                        titleView,
+                        contrastColorForScrim(x, y, titleView.width, titleView.height)
                     )
-                    
-                    // 设置对比色
-                    val textColor = ColorExtractor.getContrastColor(bgColor)
-                    titleView.setTextColor(textColor)
                 }
             }
         } catch (e: Exception) {
@@ -264,20 +402,12 @@ class BrowseFragment : BrowseSupportFragment() {
                 val x = location[0] + container.width / 2
                 val y = location[1] + container.height / 2
                 
-                // 从壁纸该位置提取颜色
-                val bgColor = ColorExtractor.extractColorFromWallpaper(
-                    requireContext(),
-                    x, y,
-                    container.width,
-                    container.height
-                )
-                
-                // 设置对比色
-                val textColor = ColorExtractor.getContrastColor(bgColor)
-                weatherIconView?.setTextColor(textColor)
-                weatherCityView?.setTextColor(textColor)
-                weatherInfoView?.setTextColor(textColor)
-                loadingTextView?.setTextColor(textColor)
+                // 按区域真实亮度 + 遮罩折算后的有效亮度取黑白
+                val textColor = contrastColorForScrim(x, y, container.width, container.height)
+                tintTextView(weatherIconView, textColor)
+                tintTextView(weatherCityView, textColor)
+                tintTextView(weatherInfoView, textColor)
+                tintTextView(loadingTextView, textColor)
                 // 注意：setIndeterminateTintList 需 API 21，本机为 Android 4.x，
                 // 改用 API 1 即存在的 Drawable.setColorFilter 给旋转图标着色，避免崩溃
                 loadingIconView?.indeterminateDrawable?.setColorFilter(textColor, PorterDuff.Mode.SRC_IN)
@@ -301,10 +431,7 @@ class BrowseFragment : BrowseSupportFragment() {
                 container.getLocationOnScreen(location)
                 val x = location[0] + container.width / 2
                 val y = location[1] + container.height / 2
-                val bgColor = ColorExtractor.extractColorFromWallpaper(
-                    requireContext(), x, y, container.width, container.height
-                )
-                ColorExtractor.getContrastColor(bgColor)
+                contrastColorForScrim(x, y, container.width, container.height)
             } else {
                 Color.WHITE
             }
@@ -323,7 +450,7 @@ class BrowseFragment : BrowseSupportFragment() {
                 weatherContainer?.visibility = View.GONE
                 loadingContainer?.visibility = View.VISIBLE
                 val color = computeWeatherContrastColor()
-                loadingTextView?.setTextColor(color)
+                tintTextView(loadingTextView, color)
                 loadingIconView?.indeterminateDrawable?.setColorFilter(color, PorterDuff.Mode.SRC_IN)
             } catch (e: Exception) {
                 Log.e("BrowseFragment", "Failed to show weather loading", e)
@@ -651,8 +778,13 @@ class BrowseFragment : BrowseSupportFragment() {
         }
         setupWeatherView()
         setupSettingsIcon()
-        // 标题栏三处自绘控件加完后，统一做一次壁纸取色（内部带缓存，只算一次）
-        handler.postDelayed({ applyWallpaperColors() }, 700)
+        setupScrim()
+        // 挂到根 view 的消息队列后再延迟取色，确保标题栏自绘控件已完成布局，
+        // getLocationOnScreen 能拿到真实坐标（否则会退化成 (0,0) 单点取样）。
+        // 内部取色带缓存，重复调用几乎零开销。
+        view?.post {
+            handler.postDelayed({ applyWallpaperColors() }, 700)
+        }
     }
     
     /**
@@ -825,11 +957,11 @@ class BrowseFragment : BrowseSupportFragment() {
                                     // 无焦点时：根据壁纸颜色设置图标颜色
                                     background = null
                                     updateSettingsIconColor()
-                                    alpha = 0.7f
+                                    alpha = 0.95f
                                 }
                             }
                             // 默认半透明
-                            alpha = 0.7f
+                            alpha = 0.95f
                         }
                         
                         // 设置布局参数 - 贴近右侧边缘
@@ -864,16 +996,8 @@ class BrowseFragment : BrowseSupportFragment() {
                 val x = location[0] + icon.width / 2
                 val y = location[1] + icon.height / 2
                 
-                // 从壁纸该位置提取颜色
-                val bgColor = ColorExtractor.extractColorFromWallpaper(
-                    requireContext(),
-                    x, y,
-                    icon.width * 2,
-                    icon.height * 2
-                )
-                
-                // 设置对比色
-                val iconColor = ColorExtractor.getContrastColor(bgColor)
+                // 按区域真实亮度 + 遮罩折算后的有效亮度取黑白
+                val iconColor = contrastColorForScrim(x, y, icon.width * 2, icon.height * 2)
                 icon.setColorFilter(iconColor, PorterDuff.Mode.SRC_IN)
             }
         } catch (e: Exception) {
@@ -943,6 +1067,7 @@ class BrowseFragment : BrowseSupportFragment() {
         loadingIconView = null
         loadingTextView = null
         settingsIcon = null
+        scrimView = null
     }
 
     /**

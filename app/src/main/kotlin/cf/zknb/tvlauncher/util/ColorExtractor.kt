@@ -27,9 +27,70 @@ object ColorExtractor {
     /** key: 量化后的采样区域，value: 主色调 */
     private val wallpaperColorCache = ConcurrentHashMap<Long, Int>()
 
+    /** key: 同上的采样区域，value: 该区域真实平均亮度 0..255（未归一化） */
+    private val regionLuminanceCache = ConcurrentHashMap<Long, Int>()
+
+    /** 整张壁纸亮区亮度（90 分位，0..255），带缓存；壁纸更换后清空 */
+    private var wallpaperLuminanceCache: Int? = null
+
     /** 壁纸更换后必须调用，否则会继续复用旧壁纸的颜色 */
     fun clearWallpaperCache() {
         wallpaperColorCache.clear()
+        regionLuminanceCache.clear()
+        wallpaperLuminanceCache = null
+    }
+
+    /**
+     * 整张壁纸的平均亮度 0..255（降采样后逐像素求均方根亮度）。
+     * 用于驱动"自适应暗化遮罩"：壁纸越亮，遮罩越深。
+     * 仅在壁纸未变化前真正解码一次，开销极低（降采样到 48x27）。
+     */
+    fun getWallpaperLuminance(context: Context): Int {
+        wallpaperLuminanceCache?.let { return it }
+        val result = try {
+            val drawable = WallpaperManager.getInstance(context).drawable ?: return 128
+            var ownsSrc = false
+            val src = when (drawable) {
+                is BitmapDrawable -> drawable.bitmap
+                else -> {
+                    val w = drawable.intrinsicWidth
+                    val h = drawable.intrinsicHeight
+                    if (w <= 0 || h <= 0) return 128
+                    val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+                    ownsSrc = true
+                    val c = android.graphics.Canvas(bmp)
+                    drawable.setBounds(0, 0, c.width, c.height)
+                    drawable.draw(c)
+                    bmp
+                }
+            }
+            try {
+                val small = Bitmap.createScaledBitmap(src, 48, 27, true)
+                val pixels = IntArray(small.width * small.height)
+                small.getPixels(pixels, 0, small.width, 0, 0, small.width, small.height)
+                // 收集逐像素亮度，取 90 分位值：反映壁纸最亮区域（如明亮天空），
+                // 比全局均值更能代表“文字背后那块是否过亮、可读性是否变差”。
+                val lums = IntArray(pixels.size)
+                var count = 0
+                for (p in pixels) {
+                    if (Color.alpha(p) < 128) continue
+                    val r = Color.red(p)
+                    val g = Color.green(p)
+                    val b = Color.blue(p)
+                    lums[count++] = sqrt(r * r * 0.299 + g * g * 0.587 + b * b * 0.114).toInt()
+                }
+                if (count == 0) 128 else {
+                    lums.sort(0, count)
+                    lums[((count - 1) * 0.9).toInt()].coerceIn(0, 255)
+                }
+            } finally {
+                if (ownsSrc) src.recycle()
+            }
+        } catch (e: Throwable) {
+            128
+        }
+        wallpaperLuminanceCache = result
+        return result
     }
 
     private fun cacheKey(x: Int, y: Int, width: Int, height: Int): Long {
@@ -83,6 +144,9 @@ object ColorExtractor {
                 wallpaperBitmap, left, top, right - left, bottom - top
             )
             val color = extractDominantColor(regionBitmap)
+            // 顺带缓存该区域的真实平均亮度（供文字/图标黑白判断使用），
+            // 复用同一次采样，不额外解码壁纸。
+            regionLuminanceCache[key] = averageLuminance(regionBitmap)
             regionBitmap.recycle()
             // 只回收自己创建的 Bitmap，绝不回收 WallpaperManager 持有的 bitmap
             createdFullBitmap?.recycle()
@@ -93,6 +157,48 @@ object ColorExtractor {
 
         wallpaperColorCache[key] = result
         return result
+    }
+
+    /**
+     * 取壁纸某区域的真实平均亮度 0..255（未做主色调归一化），带缓存。
+     *
+     * 注意：extractColorFromWallpaper 返回的主色调经过 adjustColorForBackground
+     * 归一化（明度被压到 0.3~0.5），几乎总被 isDarkColor 判为暗色 → 恒返回白色文字，
+     * 亮壁纸上就会看不清。文字/图标的黑白判断必须基于真实亮度，故提供本方法。
+     */
+    fun getRegionLuminance(
+        context: Context,
+        x: Int,
+        y: Int,
+        sampleWidth: Int = 200,
+        sampleHeight: Int = 100
+    ): Int {
+        val key = cacheKey(x, y, sampleWidth, sampleHeight)
+        // 触发一次采样（内部会顺带填充 regionLuminanceCache）；已缓存时几乎零开销
+        extractColorFromWallpaper(context, x, y, sampleWidth, sampleHeight)
+        return regionLuminanceCache[key] ?: 128
+    }
+
+    /** 区域 Bitmap 的平均感知亮度，降采样到 32x32 后逐像素统计。 */
+    private fun averageLuminance(bitmap: Bitmap): Int {
+        val small = Bitmap.createScaledBitmap(bitmap, 32, 32, true)
+        return try {
+            val pixels = IntArray(small.width * small.height)
+            small.getPixels(pixels, 0, small.width, 0, 0, small.width, small.height)
+            var sum = 0L
+            var count = 0
+            for (p in pixels) {
+                if (Color.alpha(p) < 128) continue
+                val r = Color.red(p)
+                val g = Color.green(p)
+                val b = Color.blue(p)
+                sum += sqrt(r * r * 0.299 + g * g * 0.587 + b * b * 0.114).toInt()
+                count++
+            }
+            if (count == 0) 128 else (sum / count).toInt()
+        } finally {
+            if (small !== bitmap) small.recycle()
+        }
     }
 
     fun getContrastColor(backgroundColor: Int): Int =
