@@ -22,6 +22,7 @@ import android.view.ViewGroup
 import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.LinearLayout
+import android.widget.ProgressBar
 import android.widget.TextView
 import android.widget.Toast
 import androidx.core.content.ContextCompat
@@ -59,6 +60,9 @@ class BrowseFragment : BrowseSupportFragment() {
         private const val KEY_LAST_WEATHER_FETCH = "last_weather_fetch_ms"
         private const val WEATHER_REFRESH_INTERVAL_MS = 30L * 60L * 1000L
         private const val KEY_LAST_LAUNCHED_ID = "last_launched_shortcut_id"
+        /** 设置页切换城市后置位，主页据此强制刷新，绕过 30 分钟节流 */
+        private const val KEY_PENDING_WEATHER_REFRESH = "pending_weather_refresh"
+        private const val KEY_ADCODE = "adcode"
         private val dateFormat = SimpleDateFormat("HH:mm", Locale.getDefault())
     }
     private val viewModel: BrowseViewModel by lazy {
@@ -72,6 +76,9 @@ class BrowseFragment : BrowseSupportFragment() {
     private var weatherIconView: TextView? = null
     private var weatherCityView: TextView? = null
     private var weatherInfoView: TextView? = null
+    private var loadingContainer: LinearLayout? = null
+    private var loadingIconView: ProgressBar? = null
+    private var loadingTextView: TextView? = null
     private var lastContentHash = 0
 
     /**
@@ -215,6 +222,9 @@ class BrowseFragment : BrowseSupportFragment() {
      */
     private fun updateWeather() {
         handler.post {
+            // 数据已就绪，收起“加载中”占位，恢复天气内容显示
+            loadingContainer?.visibility = View.GONE
+            weatherContainer?.visibility = View.VISIBLE
             currentWeather?.let { weather ->
                 // 更新图标
                 val iconSpan = QWeatherIconsUtil.createIconSpan(requireContext(), weather.weatherCode)
@@ -266,9 +276,71 @@ class BrowseFragment : BrowseSupportFragment() {
                 weatherIconView?.setTextColor(textColor)
                 weatherCityView?.setTextColor(textColor)
                 weatherInfoView?.setTextColor(textColor)
+                loadingTextView?.setTextColor(textColor)
+                // 注意：setIndeterminateTintList 需 API 21，本机为 Android 4.x，
+                // 改用 API 1 即存在的 Drawable.setColorFilter 给旋转图标着色，避免崩溃
+                loadingIconView?.indeterminateDrawable?.setColorFilter(textColor, PorterDuff.Mode.SRC_IN)
             }
         } catch (e: Exception) {
             Log.e("BrowseFragment", "Failed to adjust weather color", e)
+        }
+    }
+
+    /**
+     * 根据壁纸颜色计算天气区（含加载中占位）的对比色。
+     * 优先以可见的那个容器定位取色；若容器尚未布局（宽高为 0）则回退白色，保证可见。
+     */
+    private fun computeWeatherContrastColor(): Int {
+        return try {
+            val visibleRef = if (weatherContainer?.visibility == View.VISIBLE) weatherContainer
+            else loadingContainer
+            val container = visibleRef ?: weatherContainer
+            if (container != null && container.width > 0 && container.height > 0) {
+                val location = IntArray(2)
+                container.getLocationOnScreen(location)
+                val x = location[0] + container.width / 2
+                val y = location[1] + container.height / 2
+                val bgColor = ColorExtractor.extractColorFromWallpaper(
+                    requireContext(), x, y, container.width, container.height
+                )
+                ColorExtractor.getContrastColor(bgColor)
+            } else {
+                Color.WHITE
+            }
+        } catch (e: Exception) {
+            Color.WHITE
+        }
+    }
+
+    /**
+     * 显示“天气加载中”占位（旋转图标 + 文字），并隐藏已显示的天气内容，
+     * 避免切换城市 / 冷启动联网刷新期间显示陈旧城市或空白。
+     */
+    private fun showWeatherLoading() {
+        handler.post {
+            try {
+                weatherContainer?.visibility = View.GONE
+                loadingContainer?.visibility = View.VISIBLE
+                val color = computeWeatherContrastColor()
+                loadingTextView?.setTextColor(color)
+                loadingIconView?.indeterminateDrawable?.setColorFilter(color, PorterDuff.Mode.SRC_IN)
+            } catch (e: Exception) {
+                Log.e("BrowseFragment", "Failed to show weather loading", e)
+            }
+        }
+    }
+
+    /**
+     * 隐藏“天气加载中”占位，恢复天气内容显示。
+     */
+    private fun hideWeatherLoading() {
+        handler.post {
+            try {
+                loadingContainer?.visibility = View.GONE
+                weatherContainer?.visibility = View.VISIBLE
+            } catch (e: Exception) {
+                Log.e("BrowseFragment", "Failed to hide weather loading", e)
+            }
         }
     }
     
@@ -276,22 +348,45 @@ class BrowseFragment : BrowseSupportFragment() {
      * 加载天气信息
      */
     private fun loadWeather() {
-        // 尝试先显示缓存中的天气（纯本地读取，无网络、无 TLS）
+        val weatherPrefs = requireContext().getSharedPreferences("weather_settings", Context.MODE_PRIVATE)
+        val now = System.currentTimeMillis()
+        val lastFetch = weatherPrefs.getLong(KEY_LAST_WEATHER_FETCH, 0L)
+
+        // 用户在设置里切换了城市：设置页会写入 pending_weather_refresh 标记；
+        // 或者缓存中的 adcode 与当前设置不一致（说明城市已变但缓存还是旧城市）。
+        // 这两种情况都必须立即联网刷新，不能被下面的节流挡住。
+        val pendingRefresh = weatherPrefs.getBoolean(KEY_PENDING_WEATHER_REFRESH, false)
+        val configuredAdcode = weatherPrefs.getString(KEY_ADCODE, null)
         val cached = weatherRepository.loadCachedWeather(requireContext())
-        if (cached != null) {
+        val cityChanged = cached != null && !configuredAdcode.isNullOrEmpty()
+                && cached.adcode != configuredAdcode
+
+        // 若城市已切换，旧缓存属于另一个城市，不要把它展示出来，等刷新后再更新
+        if (cached != null && !cityChanged) {
             currentWeather = cached
             updateWeather()
         }
 
         // 节流：Android 4.2 上 BouncyCastle 纯 Java TLS 握手在双核 A9 上非常昂贵，
         // 旧实现每次 onStart（每次返回桌面）都发起一次，直接拖慢桌面。
-        // 半小时内复用缓存，不重复建连。
-        val weatherPrefs = requireContext().getSharedPreferences("weather_settings", Context.MODE_PRIVATE)
-        val now = System.currentTimeMillis()
-        val lastFetch = weatherPrefs.getLong(KEY_LAST_WEATHER_FETCH, 0L)
-        if (now - lastFetch < WEATHER_REFRESH_INTERVAL_MS) {
+        // 半小时内复用缓存，不重复建连；但城市变化或显式 pending 时强制刷新。
+        val withinThrottle = now - lastFetch < WEATHER_REFRESH_INTERVAL_MS
+        val mustRefresh = pendingRefresh || cityChanged
+        if (withinThrottle && !mustRefresh) {
             Log.d("BrowseFragment", "天气数据在有效期内，跳过网络请求")
             return
+        }
+
+        // 即将联网刷新：切换城市 / 冷启动时展示“加载中”占位，
+        // 避免显示陈旧城市或空白；同一城市定时刷新则保留现有显示、静默更新。
+        val needLoadingUi = mustRefresh || currentWeather == null
+        if (needLoadingUi) {
+            showWeatherLoading()
+        }
+
+        // 消费 pending 标记（cityChanged 每次实时判断，无需持久化）
+        if (pendingRefresh) {
+            weatherPrefs.edit().putBoolean(KEY_PENDING_WEATHER_REFRESH, false).apply()
         }
         weatherPrefs.edit().putLong(KEY_LAST_WEATHER_FETCH, now).apply()
 
@@ -330,13 +425,15 @@ class BrowseFragment : BrowseSupportFragment() {
                 
                 if (weather != null) {
                     currentWeather = weather
-                    updateWeather() // 更新天气显示
+                    updateWeather() // 更新天气显示（内部会收起加载中占位）
                     Log.d("BrowseFragment", "Weather loaded: ${weather.city} ${weather.weather} ${weather.temperature}")
                 } else {
                     Log.e("BrowseFragment", "Failed to load weather")
+                    hideWeatherLoading()
                 }
             } catch (e: Exception) {
                 Log.e("BrowseFragment", "Error loading weather", e)
+                hideWeatherLoading()
             }
         }
     }
@@ -614,6 +711,33 @@ class BrowseFragment : BrowseSupportFragment() {
                         textContainer.addView(weatherInfoView)
                         weatherContainer?.addView(weatherIconView)
                         weatherContainer?.addView(textContainer)
+
+                        // 加载中占位（旋转图标 + 文字），与天气容器同一位置、靠可见性互斥，
+                        // 用于切换城市 / 冷启动联网刷新期间占位，避免显示陈旧城市或空白。
+                        loadingContainer = LinearLayout(requireContext()).apply {
+                            orientation = LinearLayout.HORIZONTAL
+                            gravity = Gravity.CENTER_VERTICAL
+                            setPadding(
+                                (16 * density).toInt(),
+                                0,
+                                0,
+                                0
+                            )
+                            visibility = View.GONE
+                        }
+                        loadingIconView = ProgressBar(requireContext()).apply {
+                            isIndeterminate = true
+                            val size = (24 * density).toInt()
+                            layoutParams = LinearLayout.LayoutParams(size, size)
+                        }
+                        loadingTextView = TextView(requireContext()).apply {
+                            text = "天气加载中…"
+                            textSize = 16f
+                            setTextColor(Color.WHITE)
+                            setPadding((8 * density).toInt(), 0, 0, 0)
+                        }
+                        loadingContainer?.addView(loadingIconView)
+                        loadingContainer?.addView(loadingTextView)
                         
                         // 设置布局参数 - 左侧显示
                         val layoutParams = FrameLayout.LayoutParams(
@@ -622,9 +746,16 @@ class BrowseFragment : BrowseSupportFragment() {
                         ).apply {
                             gravity = Gravity.START or Gravity.CENTER_VERTICAL
                         }
+                        val loadingParams = FrameLayout.LayoutParams(
+                            FrameLayout.LayoutParams.WRAP_CONTENT,
+                            FrameLayout.LayoutParams.WRAP_CONTENT
+                        ).apply {
+                            gravity = Gravity.START or Gravity.CENTER_VERTICAL
+                        }
                         
                         // 将天气组件添加到标题栏
                         titleGroup.addView(weatherContainer, layoutParams)
+                        titleGroup.addView(loadingContainer, loadingParams)
                         
                         // 如果已经有天气数据，立即更新显示
                         if (currentWeather != null) {
@@ -805,6 +936,9 @@ class BrowseFragment : BrowseSupportFragment() {
         weatherIconView = null
         weatherCityView = null
         weatherInfoView = null
+        loadingContainer = null
+        loadingIconView = null
+        loadingTextView = null
         settingsIcon = null
     }
 
