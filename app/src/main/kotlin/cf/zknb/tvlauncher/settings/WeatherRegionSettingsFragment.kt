@@ -127,8 +127,11 @@ class WeatherRegionSettingsFragment : GuidedStepSupportFragment() {
      * 执行自动定位
      */
     private fun performAutoLocation() {
-        Toast.makeText(requireContext(), "正在定位...", Toast.LENGTH_SHORT).show()
-        
+        // 使用 applicationContext，避免协程挂起期间 Fragment/Activity 被销毁后
+        // requireContext() 在 catch 块中再次抛异常导致崩溃（之前的闪退隐患之一）
+        val appContext = requireActivity().applicationContext
+        Toast.makeText(appContext, "正在定位...", Toast.LENGTH_SHORT).show()
+
         lifecycleScope.launch {
             try {
                 Log.d(TAG, "开始自动定位...")
@@ -139,23 +142,25 @@ class WeatherRegionSettingsFragment : GuidedStepSupportFragment() {
                     val adcode = weather.adcode
                     Log.d(TAG, "自动定位成功: cityName=$cityName, adcode=$adcode")
                     // 保存到SharedPreferences
-                    val prefs = requireContext().getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                    val prefs = appContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
                     prefs.edit()
                         .putString(KEY_CITY_NAME, cityName)
                         .putString(KEY_ADCODE, adcode)
                         // 自动定位后启用天气定位
                         .putBoolean(KEY_USE_IP_LOCATION, true)
+                        // 通知主页返回后强制刷新天气（绕过节流）
+                        .putBoolean("pending_weather_refresh", true)
                         .apply()
-                    Toast.makeText(requireContext(), "定位成功：$cityName", Toast.LENGTH_SHORT).show()
-                    // 返回上一页
-                    finishGuidedStepSupportFragments()
+                    Toast.makeText(appContext, "定位成功：$cityName", Toast.LENGTH_SHORT).show()
+                    // 直接关闭设置页，回到主页查看天气
+                    requireActivity().finish()
                 } else {
                     Log.w(TAG, "自动定位失败，未获取到天气结果")
-                    Toast.makeText(requireContext(), "定位失败，请手动选择城市", Toast.LENGTH_LONG).show()
+                    Toast.makeText(appContext, "定位失败，请手动选择城市", Toast.LENGTH_LONG).show()
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Auto location error", e)
-                Toast.makeText(requireContext(), "定位出错：${e.message}", Toast.LENGTH_LONG).show()
+                Toast.makeText(appContext, "定位出错：${e.message}", Toast.LENGTH_LONG).show()
             }
         }
     }
@@ -237,13 +242,18 @@ class WeatherRegionSettingsFragment : GuidedStepSupportFragment() {
                     finalName = city.cityName
                     adcode = city.cityAdcode.toString()
                 }
-                val prefs = requireContext().getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                val appContext = requireActivity().applicationContext
+                val prefs = appContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
                 prefs.edit()
                     .putString(KEY_CITY_NAME, finalName)
                     .putString(KEY_ADCODE, adcode)
                     .putBoolean(KEY_USE_IP_LOCATION, false)
+                    // 通知主页返回后强制刷新天气（绕过节流），否则主页仍显示旧城市
+                    .putBoolean("pending_weather_refresh", true)
                     .apply()
-                Toast.makeText(requireContext(), getString(R.string.weather_city_selected, finalName), Toast.LENGTH_SHORT).show()
+                Toast.makeText(appContext, getString(R.string.weather_city_selected, finalName), Toast.LENGTH_SHORT).show()
+                // 关闭设置页回到主页，由 BrowseFragment.loadWeather() 检测到标记后强制刷新
+                requireActivity().finish()
             }
             .setNegativeButton("取消", null)
             .show()
