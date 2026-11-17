@@ -1,9 +1,28 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
 
-    <dimen name="card_width">160dp</dimen>
-    <dimen name="card_height">90dp</dimen>
-    <dimen name="card_icon_size">60dp</dimen>
-    <dimen name="card_padding_horizontal">12dp</dimen>
+    <!--
+      应用卡片尺寸集中在这里调整。
+      内容区保持 16:9，应用横幅（banner）铺满时不会被拉伸变形；
+      外层 = 内容区 + 每边 4dp，专门留给选中白框，
+      这样白框不会压住图标/横幅，也不改变内容区排版。
+    -->
+    <dimen name="card_width">192dp</dimen>
+    <dimen name="card_height">108dp</dimen>
+    <dimen name="card_outer_width">200dp</dimen>
+    <dimen name="card_outer_height">116dp</dimen>
+
+    <!-- 图标放大、名称字号加大：1080p 电视远距离观看更清楚 -->
+    <dimen name="card_icon_size">68dp</dimen>
+    <dimen name="card_text_size">15sp</dimen>
+    <dimen name="card_padding_horizontal">10dp</dimen>
+    <dimen name="card_padding_vertical">4dp</dimen>
+    <!-- 图标在左、名称在右时的图标与文字间距 -->
+    <dimen name="card_drawable_padding">8dp</dimen>
+
+    <dimen name="card_focus_border_width">3dp</dimen>
+    <dimen name="card_focus_border_radius">4dp</dimen>
+    <!-- Leanback 默认已有 8dp 行内间距，这里只补一点，避免卡片过大时挤成一行 -->
+    <dimen name="card_spacing">4dp</dimen>
 
 </resources>

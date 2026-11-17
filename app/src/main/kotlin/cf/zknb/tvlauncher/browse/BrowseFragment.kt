@@ -213,6 +213,10 @@ class BrowseFragment : BrowseSupportFragment() {
                 (child.id == androidx.leanback.R.id.row_header ||
                     child.javaClass.simpleName == "RowHeaderView")
             ) {
+                // 应用卡片放大后，Leanback 默认的小号浅灰分组标题显得过弱。
+                // 统一加大加粗，让「分组标题 → 卡片」的层级在远距离观看下依然清晰。
+                child.textSize = 18f
+                child.setTypeface(Typeface.DEFAULT_BOLD)
                 // 按该分组标题自己所在区域的真实亮度取色，与标题/天气/设置图标
                 // 使用同一套自适应逻辑，避免同一屏出现黑白不一致或黑字压暗底。
                 val location = IntArray(2)

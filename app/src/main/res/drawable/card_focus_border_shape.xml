@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 只画白色描边，不设 solid 填充，杜绝透明填充在老设备上被渲染成色块 -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+
+    <stroke
+        android:width="@dimen/card_focus_border_width"
+        android:color="@android:color/white" />
+    <corners android:radius="@dimen/card_focus_border_radius" />
+
+</shape>

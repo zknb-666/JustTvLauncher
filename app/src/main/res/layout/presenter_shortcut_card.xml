@@ -1,24 +1,56 @@
 <?xml version="1.0" encoding="utf-8"?>
-<androidx.leanback.widget.BaseCardView xmlns:android="http://schemas.android.com/apk/res/android"
+<!--
+  应用卡片结构（Leanback 横排样式：图标在左、名称在右）：
+    FrameLayout(root)  —— 固定外层尺寸，比内容区大一圈，专门承载选中白框
+      ├─ TextView(content) —— 左侧图标 + 右侧应用名，或铺满的应用横幅
+      └─ View(focus_border) —— 选中白框；未选中时为纯透明、且不可见
+
+  外层留白保证白框不会压住图标/横幅，也不改变内容区排版。
+-->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools"
-    android:layout_width="wrap_content"
-    android:layout_height="wrap_content"
+    android:layout_width="@dimen/card_outer_width"
+    android:layout_height="@dimen/card_outer_height"
+    android:layout_marginRight="@dimen/card_spacing"
+    android:layout_marginEnd="@dimen/card_spacing"
     android:focusable="true"
-    android:focusableInTouchMode="true">
+    android:focusableInTouchMode="true"
+    android:clipChildren="false"
+    android:clipToPadding="false">
 
     <!--
       旧配置使用 ellipsize="marquee" + marqueeRepeatLimit="marquee_forever"，
       会让所有可见卡片持续 invalidate 重绘（1920x1080 / 双核 A9 上常驻掉帧）。
-      改为静态两行截断；需要完整名称时由聚焦卡片自行处理。
+      改为静态两行截断；图标在左、名称在右，垂直居中，符合 Leanback 卡片惯例。
     -->
     <TextView
         android:id="@+id/content"
         android:layout_width="@dimen/card_width"
         android:layout_height="@dimen/card_height"
-        android:duplicateParentState="false"
-        android:drawablePadding="4dp"
-        android:gravity="center_vertical"
-        android:maxLines="2"
+        android:layout_gravity="center"
+        android:drawablePadding="@dimen/card_drawable_padding"
         android:ellipsize="end"
+        android:gravity="center_vertical"
+        android:includeFontPadding="false"
+        android:maxLines="2"
+        android:paddingLeft="@dimen/card_padding_horizontal"
+        android:paddingTop="@dimen/card_padding_vertical"
+        android:paddingRight="@dimen/card_padding_horizontal"
+        android:paddingBottom="@dimen/card_padding_vertical"
+        android:textColor="@android:color/white"
+        android:textSize="@dimen/card_text_size"
+        android:textStyle="bold"
         tools:ignore="RtlHardcoded,RtlSymmetry" />
-</androidx.leanback.widget.BaseCardView>
+
+    <View
+        android:id="@+id/focus_border"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="@drawable/card_focus_border"
+        android:clickable="false"
+        android:duplicateParentState="true"
+        android:focusable="false"
+        android:longClickable="false"
+        android:visibility="invisible" />
+
+</FrameLayout>
