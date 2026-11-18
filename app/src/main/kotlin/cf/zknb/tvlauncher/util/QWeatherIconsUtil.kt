@@ -1,137 +1,183 @@
 package cf.zknb.tvlauncher.util
 
 import android.content.Context
-import android.graphics.Typeface
-import android.text.SpannableString
-import android.text.Spanned
-import android.text.style.TypefaceSpan
+import android.graphics.Canvas
+import android.graphics.Color
+import android.graphics.ColorFilter
+import android.graphics.Matrix
+import android.graphics.Paint
+import android.graphics.Path
+import android.graphics.PixelFormat
+import android.graphics.Rect
+import android.graphics.drawable.Drawable
 import android.util.Log
+import androidx.core.graphics.PathParser
+import java.io.File
+import java.util.concurrent.ConcurrentHashMap
+import java.util.regex.Pattern
 
 /**
- * 和风天气图标字体工具类
- * 
- * 使用QWeather Icons字体来显示天气图标
+ * 和风天气图标 —— 在线 CDN 版（零本地资源）。
+ *
+ * 原先图标靠打包在 APK 里的 `assets/fonts/qweather-icons.ttf`（约 198 KB）以字符 + TypefaceSpan
+ * 的方式渲染。现在按天气代码直接从 jsDelivr CDN 拉取官方 SVG：
+ *
+ * ```
+ * https://fastly.jsdelivr.net/npm/qweather-icons@1.8.0/icons/{code}.svg
+ * ```
+ *
+ * 文件名与天气数据里的 `icon` / `weather_icon` 字段一一对应
+ * （见 https://icons.qweather.com/usage/ ，例：305 → 305.svg）。
+ * 图标项目采用 MIT / CC BY 4.0 许可，允许在线引用。
+ *
+ * 渲染方式：Android 4.2（API 17）既没有 VectorDrawable，也无法用 BitmapFactory
+ * 解码 SVG。这里复用 **已随 leanback 引入的** `androidx.core.graphics.PathParser`
+ * 把 SVG 里的 `<path d="...">` 转成 [android.graphics.Path]，再由
+ * [SvgIconDrawable] 按 viewBox 缩放绘制 —— 零新增依赖、矢量无损、可任意染色。
+ * CDN 上的图标格式固定：`viewBox="0 0 16 16"`、`fill="currentColor"`、
+ * 1~2 个纯填充 path，无 transform / stroke / clip。
+ *
+ * 缓存：SVG 文本落盘到 `cacheDir/qweather_icons/{code}.svg`，解析结果常驻内存。
+ * 每个天气代码通常只联网一次；断网或 CDN 故障时，已见过的图标依然能显示。
  */
 object QWeatherIconsUtil {
-    private const val TAG = "QWeatherIconsUtil"
-    private var typeface: Typeface? = null
-    
-    /**
-     * 天气代码到Unicode字符的映射
-     * 这些是和风天气图标字体中的字符编码
-     */
-    private val iconMap = mapOf(
-        "100" to '\uF101', // 晴
-        "101" to '\uF102', // 多云
-        "102" to '\uF103', // 少云
-        "103" to '\uF104', // 晴间多云
-        "104" to '\uF105', // 阴
-        "150" to '\uF106', // 晴（夜间）
-        "151" to '\uF107', // 多云（夜间）
-        "152" to '\uF108', // 少云（夜间）
-        "153" to '\uF109', // 晴间多云（夜间）
-        "300" to '\uF10A', // 阵雨
-        "301" to '\uF10B', // 强阵雨
-        "302" to '\uF10C', // 雷阵雨
-        "303" to '\uF10D', // 强雷阵雨
-        "304" to '\uF10E', // 雷阵雨伴有冰雹
-        "305" to '\uF10F', // 小雨
-        "306" to '\uF110', // 中雨
-        "307" to '\uF111', // 大雨
-        "308" to '\uF112', // 极端降雨
-        "309" to '\uF113', // 毛毛雨/细雨
-        "310" to '\uF114', // 暴雨
-        "311" to '\uF115', // 大暴雨
-        "312" to '\uF116', // 特大暴雨
-        "313" to '\uF117', // 冻雨
-        "314" to '\uF118', // 小到中雨
-        "315" to '\uF119', // 中到大雨
-        "316" to '\uF11A', // 大到暴雨
-        "317" to '\uF11B', // 暴雨到大暴雨
-        "318" to '\uF11C', // 大暴雨到特大暴雨
-        "350" to '\uF11D', // 阵雨（夜间）
-        "351" to '\uF11E', // 强阵雨（夜间）
-        "399" to '\uF11F', // 雨
-        "400" to '\uF120', // 小雪
-        "401" to '\uF121', // 中雪
-        "402" to '\uF122', // 大雪
-        "403" to '\uF123', // 暴雪
-        "404" to '\uF124', // 雨夹雪
-        "405" to '\uF125', // 雨雪天气
-        "406" to '\uF126', // 阵雨夹雪
-        "407" to '\uF127', // 阵雪
-        "408" to '\uF128', // 小到中雪
-        "409" to '\uF129', // 中到大雪
-        "410" to '\uF12A', // 大到暴雪
-        "456" to '\uF12B', // 阵雨夹雪（夜间）
-        "457" to '\uF12C', // 阵雪（夜间）
-        "499" to '\uF12D', // 雪
-        "500" to '\uF12E', // 薄雾
-        "501" to '\uF12F', // 雾
-        "502" to '\uF130', // 霧
-        "503" to '\uF131', // 扬沙
-        "504" to '\uF132', // 浮尘
-        "507" to '\uF133', // 沙尘暴
-        "508" to '\uF134', // 强沙尘暴
-        "509" to '\uF135', // 浓雾
-        "510" to '\uF136', // 强浓雾
-        "511" to '\uF137', // 中度霧
-        "512" to '\uF138', // 重度霧
-        "513" to '\uF139', // 严重霧
-        "514" to '\uF13A', // 大雾
-        "515" to '\uF13B', // 特强浓雾
-        "900" to '\uF13C', // 热
-        "901" to '\uF13D', // 冷
-        "999" to '\uF13E'  // 未知
+
+    private const val TAG = "QWeatherIcons"
+    private const val CDN_PATH = "/npm/qweather-icons@1.8.0/icons/"
+
+    /** 国内电视实测均可解析；fastly 延迟最低，其余作为故障转移。 */
+    private val CDN_HOSTS = arrayOf(
+        "fastly.jsdelivr.net",
+        "gcore.jsdelivr.net",
+        "cdn.jsdelivr.net"
     )
-    
+    private const val CONNECT_TIMEOUT_MS = 4000
+    private const val READ_TIMEOUT_MS = 6000
+    private const val DEFAULT_VIEWBOX = 16f
+
+    private val pathPattern = Pattern.compile("<path\\b[^>]*?\\sd=\"([^\"]+)\"", Pattern.DOTALL)
+    private val viewBoxPattern = Pattern.compile(
+        "viewBox=\"\\s*[\\d.-]+\\s+[\\d.-]+\\s+([\\d.-]+)\\s+([\\d.-]+)\\s*\""
+    )
+    private val codePattern = Regex("\\d{3,4}")
+
+    /** 解析后的矢量图形；天气代码数量有限（通常十几个），无需 LRU 淘汰。 */
+    private val memoryCache = ConcurrentHashMap<String, IconShape>()
+
+    /** 供同文件的 [SvgIconDrawable] 使用。 */
+    internal class IconShape(val paths: List<Path>, val width: Float, val height: Float)
+
+    /** 只接受 3~4 位数字，避免非法 code 拼出越界 URL 或路径穿越。 */
+    private fun normalizeCode(code: String?): String {
+        val c = code?.trim().orEmpty()
+        return if (codePattern.matches(c)) c else "999"
+    }
+
+    private fun cacheFile(context: Context, code: String): File =
+        File(File(context.applicationContext.cacheDir, "qweather_icons"), "$code.svg")
+
     /**
-     * 初始化字体
+     * 同步加载图标，**必须在 IO 线程调用**。
+     * 顺序：内存缓存 → 磁盘缓存 → 依次尝试各 CDN 域名。
+     * 全部失败返回 null，调用方应隐藏图标而不是崩溃。
+     *
+     * 加同步是为了避免冷启动时「缓存天气 + 联网天气」两次 updateWeather 并发
+     * 请求同一个 code（两者都会在内存缓存写入前进入下载分支）。
      */
-    fun init(context: Context) {
+    @Synchronized
+    fun loadIcon(context: Context, weatherCode: String?): SvgIconDrawable? {
+        val code = normalizeCode(weatherCode)
+        val app = context.applicationContext
+
+        memoryCache[code]?.let {
+            Log.d(TAG, "图标命中内存缓存: $code")
+            return SvgIconDrawable(it)
+        }
+
+        val file = cacheFile(app, code)
+        var svg = readDisk(file)
+        val fromDisk = svg != null
+        if (svg == null) {
+            svg = fetchFromCdn(code)
+            if (svg != null) writeDisk(file, svg)
+        }
+        if (svg == null) {
+            Log.w(TAG, "图标下载失败: $code（已尝试 ${CDN_HOSTS.size} 个 CDN）")
+            return null
+        }
+
+        val shape = parseSvg(svg)
+        if (shape == null) {
+            Log.w(TAG, "SVG 解析失败: $code, ${svg.length} 字节")
+            // 可能是写了一半的损坏缓存，删掉让下次重新下载
+            if (fromDisk) file.delete()
+            return null
+        }
+        memoryCache[code] = shape
+        Log.d(TAG, "图标就绪: $code (${shape.paths.size} path, ${if (fromDisk) "disk" else "cdn"})")
+        return SvgIconDrawable(shape)
+    }
+
+    private fun readDisk(file: File): String? = try {
+        if (file.isFile && file.length() > 0) file.readText(Charsets.UTF_8) else null
+    } catch (e: Exception) {
+        Log.w(TAG, "读取图标缓存失败: ${e.message}")
+        null
+    }
+
+    private fun writeDisk(file: File, svg: String) {
         try {
-            typeface = Typeface.createFromAsset(context.assets, "fonts/qweather-icons.ttf")
-            Log.d(TAG, "QWeather Icons font loaded successfully")
+            file.parentFile?.mkdirs()
+            file.writeText(svg, Charsets.UTF_8)
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to load QWeather Icons font", e)
+            Log.w(TAG, "写入图标缓存失败: ${e.message}")
         }
     }
-    
-    /**
-     * 根据天气代码获取图标字符
-     */
-    fun getWeatherIcon(weatherCode: String): String {
-        val iconChar = iconMap[weatherCode] ?: iconMap["999"]!!
-        return iconChar.toString()
-    }
-    
-    /**
-     * 创建带有自定义字体的SpannableString
-     * 用于在TextView中显示天气图标
-     */
-    fun createIconSpan(context: Context, weatherCode: String): SpannableString {
-        if (typeface == null) {
-            init(context)
+
+    /** 走统一网络层（Conscrypt TLS + 自动跨协议重定向），逐个域名重试。 */
+    private fun fetchFromCdn(code: String): String? {
+        for (host in CDN_HOSTS) {
+            val url = "https://$host$CDN_PATH$code.svg"
+            val body = try {
+                HttpCompat.getString(url, CONNECT_TIMEOUT_MS, READ_TIMEOUT_MS)
+            } catch (e: Exception) {
+                Log.w(TAG, "CDN 请求异常 $host: ${e.message}")
+                null
+            }
+            if (!body.isNullOrEmpty() && body.contains("<svg", ignoreCase = true)) {
+                Log.d(TAG, "图标已下载: $code <- $host (${body.length} B)")
+                return body
+            }
+            Log.w(TAG, "CDN 未返回 SVG: $host / $code，尝试下一个")
         }
-        
-        val iconText = getWeatherIcon(weatherCode)
-        val spannable = SpannableString(iconText)
-        
-        typeface?.let {
-            spannable.setSpan(
-                CustomTypefaceSpan(it),
-                0,
-                iconText.length,
-                Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
-            )
-        }
-        
-        return spannable
+        return null
     }
-    
-    /**
-     * 获取简化的天气描述
-     */
+
+    /** 提取 viewBox 尺寸与全部 path 的 d，交给 PathParser 转成 Android Path。 */
+    private fun parseSvg(svg: String): IconShape? {
+        var w = DEFAULT_VIEWBOX
+        var h = DEFAULT_VIEWBOX
+        val vb = viewBoxPattern.matcher(svg)
+        if (vb.find()) {
+            w = vb.group(1)?.toFloatOrNull() ?: DEFAULT_VIEWBOX
+            h = vb.group(2)?.toFloatOrNull() ?: DEFAULT_VIEWBOX
+        }
+        val paths = ArrayList<Path>(2)
+        val m = pathPattern.matcher(svg)
+        while (m.find()) {
+            val d = m.group(1) ?: continue
+            try {
+                PathParser.createPathFromPathData(d)?.let { paths.add(it) }
+            } catch (e: Throwable) {
+                // PathParser 对畸形 path 可能抛 RuntimeException / IllegalArgumentException
+                Log.w(TAG, "忽略无法解析的 path: ${e.javaClass.simpleName}")
+            }
+        }
+        return if (paths.isEmpty() || w <= 0f || h <= 0f) null
+        else IconShape(paths, w, h)
+    }
+
+    /** 获取简化的天气描述（保留原有文案逻辑，与图标无关）。 */
     fun getSimpleWeatherText(weather: String): String {
         return when {
             weather.contains("晴") -> "晴"
@@ -143,17 +189,83 @@ object QWeatherIconsUtil {
             else -> weather
         }
     }
-    
-    /**
-     * 自定义TypefaceSpan，用于应用自定义字体
-     */
-    private class CustomTypefaceSpan(private val typeface: Typeface) : TypefaceSpan("") {
-        override fun updateDrawState(ds: android.text.TextPaint) {
-            ds.typeface = typeface
-        }
-        
-        override fun updateMeasureState(paint: android.text.TextPaint) {
-            paint.typeface = typeface
-        }
+}
+
+/**
+ * 用 Canvas 直接绘制 SVG path 的矢量 Drawable。
+ *
+ * 相比字体图标：不需要 TTF、颜色可直接跟随壁纸对比色、任意缩放不失真。
+ * [setIconColor] 兼容 API 1，避开 ImageView.setColorFilter 在旧平台上的差异。
+ *
+ * **画质要点**：不能在 draw() 里用 canvas.scale() 放大 16 单位的 path。
+ * Android 4.2 的硬件加速 hwui 会先按 path 的局部坐标（16×16）栅格化成低分辨率
+ * 纹理再放大，边缘呈明显块状/马赛克（实测 TCL 901 上的云朵轮廓）。
+ * 这里改为在 bounds 变化时用 Matrix 把 path 预缩放到**最终像素尺寸**，
+ * draw() 时不再缩放 Canvas，抗锯齿按屏幕分辨率生效。
+ */
+class SvgIconDrawable internal constructor(
+    private val shape: QWeatherIconsUtil.IconShape
+) : Drawable() {
+
+    private val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.FILL
+        color = Color.WHITE
     }
+    private var filter: ColorFilter? = null
+
+    /** 已按像素尺寸缩放、合并好的 path（避免重复计算）。 */
+    private var scaledPath: Path? = null
+    private var scaledWidth = 0
+    private var scaledHeight = 0
+
+    /** 由外部（壁纸对比色计算）设置图标颜色。 */
+    fun setIconColor(color: Int) {
+        paint.color = color
+        invalidateSelf()
+    }
+
+    override fun onBoundsChange(bounds: Rect) {
+        super.onBoundsChange(bounds)
+        rebuildPath(bounds.width(), bounds.height())
+    }
+
+    private fun rebuildPath(w: Int, h: Int) {
+        if (w <= 0 || h <= 0) {
+            scaledPath = null
+            return
+        }
+        if (w == scaledWidth && h == scaledHeight && scaledPath != null) return
+        val matrix = Matrix().apply { setScale(w / shape.width, h / shape.height) }
+        val combined = Path()
+        for (p in shape.paths) combined.addPath(p, matrix)
+        scaledPath = combined
+        scaledWidth = w
+        scaledHeight = h
+    }
+
+    override fun draw(canvas: Canvas) {
+        val b = bounds
+        if (b.width() <= 0 || b.height() <= 0 || shape.paths.isEmpty()) return
+        if (scaledPath == null || b.width() != scaledWidth || b.height() != scaledHeight) {
+            rebuildPath(b.width(), b.height())
+        }
+        val path = scaledPath ?: return
+        paint.colorFilter = filter
+        val saveCount = canvas.save()
+        canvas.translate(b.left.toFloat(), b.top.toFloat())
+        canvas.drawPath(path, paint)
+        canvas.restoreToCount(saveCount)
+    }
+
+    override fun setAlpha(alpha: Int) {
+        paint.alpha = alpha
+        invalidateSelf()
+    }
+
+    override fun setColorFilter(colorFilter: ColorFilter?) {
+        filter = colorFilter
+        invalidateSelf()
+    }
+
+    override fun getOpacity(): Int = PixelFormat.TRANSLUCENT
 }

@@ -3,171 +3,152 @@ package cf.zknb.tvlauncher.repository
 import android.content.Context
 import android.util.Log
 import cf.zknb.tvlauncher.model.Weather
+import cf.zknb.tvlauncher.util.HttpCompat
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import okhttp3.OkHttpClient
-import okhttp3.Request
-import org.bouncycastle.jce.provider.BouncyCastleProvider
-import org.bouncycastle.jsse.provider.BouncyCastleJsseProvider
 import org.json.JSONObject
-import java.security.Security
-import java.util.concurrent.TimeUnit
 
 /**
  * 天气数据仓库
  *
- * 负责从API获取天气数据，使用OkHttp和BouncyCastle支持Android 4.2的TLS连接
- * BouncyCastle是纯Java实现，不依赖native库，适合system/app
+ * 网络层统一走 [HttpCompat]（HttpURLConnection + Conscrypt native TLS）。
+ * 这里严格区分两种语义：
+ * - [locateByIp]：自动定位，只认真实网络结果，失败返回 null；
+ * - [getWeather]：桌面展示用，失败 / 占位时先回退省级 adcode，再回退本地缓存。
+ *
+ * 依据 uapis.cn「查询天气」接口文档：不传 city / adcode 时按客户端 IP 定位，
+ * adcode 优先级最高；weather 不是固定枚举，weather_icon 才是图标代码；
+ * adcode 与部分字段可能为空。
  */
 class WeatherRepository(private val context: Context) {
-    
+
     companion object {
         private const val TAG = "WeatherRepository"
         private const val API_URL = "https://uapis.cn/api/v1/misc/weather"
-        private const val TIMEOUT = 1000L // 1秒
+        // 老设备首次 TLS 握手 + 可能的 HTTP 降级需要留一点余量
+        private const val TIMEOUT_MS = 3000
         private const val PREFS_WEATHER = "cached_weather"
-        
-        init {
-            // 在Android 4.2等老版本上安装BouncyCastle作为安全提供者（纯Java实现）
-            try {
-                // 移除已有的BC provider（如果存在）
-                Security.removeProvider("BC")
-                Security.removeProvider("BCJSSE")
-                
-                // 添加BouncyCastle provider
-                Security.insertProviderAt(BouncyCastleProvider(), 1)
-                Security.insertProviderAt(BouncyCastleJsseProvider(), 2)
-                Log.d(TAG, "BouncyCastle providers installed successfully")
-            } catch (e: Exception) {
-                Log.w(TAG, "Failed to install BouncyCastle providers", e)
-            }
-        }
     }
     
-    private val client: OkHttpClient by lazy {
-        try {
-            val trustManager = createTrustManager()
-            
-            // 获取BouncyCastle的SSLContext（使用BCJSSE provider）
-            val sslContext = javax.net.ssl.SSLContext.getInstance("TLS", "BCJSSE")
-            sslContext.init(null, arrayOf<javax.net.ssl.TrustManager>(trustManager), java.security.SecureRandom())
-            
-            OkHttpClient.Builder()
-                .connectTimeout(TIMEOUT, TimeUnit.MILLISECONDS)
-                .readTimeout(TIMEOUT, TimeUnit.MILLISECONDS)
-                .writeTimeout(TIMEOUT, TimeUnit.MILLISECONDS)
-                .sslSocketFactory(sslContext.socketFactory, trustManager)
-                .hostnameVerifier { _, _ -> true } // 信任所有主机名
-                .build()
-        } catch (e: Exception) {
-            Log.w(TAG, "Failed to create OkHttpClient with BouncyCastle, using default", e)
-            // 降级到默认配置
-            OkHttpClient.Builder()
-                .connectTimeout(TIMEOUT, TimeUnit.MILLISECONDS)
-                .readTimeout(TIMEOUT, TimeUnit.MILLISECONDS)
-                .writeTimeout(TIMEOUT, TimeUnit.MILLISECONDS)
-                .build()
-        }
-    }
-    
+    /** 一次「真实联网拿到有效实况」的结果，raw 用于写入缓存。 */
+    private data class FreshWeather(val raw: String, val weather: Weather)
+
     /**
-     * 创建一个信任所有证书的TrustManager（仅用于兼容老版本Android）
-     * 注意：生产环境应该使用正确的证书验证
-     */
-    private fun createTrustManager(): javax.net.ssl.X509TrustManager {
-        return object : javax.net.ssl.X509TrustManager {
-            override fun checkClientTrusted(chain: Array<out java.security.cert.X509Certificate>?, authType: String?) {
-            }
-            
-            override fun checkServerTrusted(chain: Array<out java.security.cert.X509Certificate>?, authType: String?) {
-            }
-            
-            override fun getAcceptedIssuers(): Array<java.security.cert.X509Certificate> {
-                return arrayOf()
-            }
-        }
-    }
-    
-    /**
-     * 根据城市adcode获取天气信息；如果adcode为空则直接调用IP定位天气接口
+     * 自动定位：不带任何参数请求天气接口，由服务端按客户端 IP 定位（见 API 文档）。
      *
-     * @param adcode 高德地图城市adcode（如：110100 北京），可为空
-     * @return Weather对象，失败返回null
+     * 与 [getWeather] 的关键区别：**不回退缓存**。请求失败、非 2xx 或占位数据一律
+     * 返回 null，调用方才能区分「真的定位到了」与「只是读到上一次别的城市的天气」。
      */
-    suspend fun getWeather(adcode: String? = null): Weather? = withContext(Dispatchers.IO) {
+    suspend fun locateByIp(): Weather? = withContext(Dispatchers.IO) {
         try {
-            val urlString = if (adcode.isNullOrEmpty()) API_URL else "$API_URL?adcode=$adcode"
-            Log.d(TAG, "Requesting weather from: $urlString")
-            
-            val request = Request.Builder()
-                .url(urlString)
-                .get()
-                .addHeader("Accept", "application/json")
-                .addHeader("User-Agent", "Mozilla/5.0")
-                .build()
-            
-            val response = client.newCall(request).execute()
-            val responseCode = response.code()
-            Log.d(TAG, "Response code: $responseCode")
-            
-            if (response.isSuccessful) {
-                val responseBody = response.body()?.string()
-                Log.d(TAG, "Response: $responseBody")
-                
-                if (responseBody != null) {
-                    val weather = parseWeatherResponse(responseBody)
-                    // cache result asynchronously
-                    if (weather != null) {
-                        cacheWeather(responseBody, context)
-                    }
-                    weather
-                } else {
-                    Log.e(TAG, "Response body is null")
-                    null
-                }
-            } else {
-                val errorResponse = response.body()?.string() ?: "No error message"
-                Log.e(TAG, "HTTP error code: $responseCode, Error: $errorResponse")
-                null
+            val fresh = requestFresh(API_URL)
+            if (fresh == null) {
+                Log.w(TAG, "IP 定位未拿到有效实况")
+                return@withContext null
             }
+            cacheWeather(fresh.raw, context)
+            fresh.weather
         } catch (e: Exception) {
-            Log.e(TAG, "Error fetching weather: ${e.message}", e)
+            Log.e(TAG, "IP 定位异常: ${e.message}", e)
             null
         }
     }
+
+    /**
+     * 按 adcode 查询天气；adcode 为空时按 IP 定位。
+     *
+     * 实测部分市 / 区级 adcode 会返回整包占位数据（北京 110100 / 110101 / 110117
+     * 为「未知 0°C」），而同省的省级 adcode（110000）有正常实况。因此占位时自动
+     * 用省级 adcode 再查一次，避免桌面长期显示别的城市的天气。
+     *
+     * 仅「有效实况」才写缓存；两级都失败时回退到上一次有效天气。
+     */
+    suspend fun getWeather(adcode: String? = null): Weather? = withContext(Dispatchers.IO) {
+        try {
+            val primaryUrl = if (adcode.isNullOrEmpty()) API_URL else "$API_URL?adcode=$adcode"
+            val primary = requestFresh(primaryUrl)
+            val result = if (primary == null && !adcode.isNullOrEmpty()) {
+                provinceFallbackUrl(adcode)?.let { fallback ->
+                    Log.d(TAG, "市/区级无实况，回退省级: $fallback")
+                    requestFresh(fallback)
+                }
+            } else {
+                primary
+            }
+
+            if (result != null) {
+                cacheWeather(result.raw, context)
+                return@withContext result.weather
+            }
+            Log.w(TAG, "无有效实况，保留上一次有效天气")
+        } catch (e: Exception) {
+            Log.e(TAG, "Error fetching weather: ${e.message}", e)
+        }
+        loadCachedWeather(context)
+    }
+
+    /** 由 6 位市 / 区级 adcode 推导省级（110101 -> 110000）；已是省级则返回 null。 */
+    private fun provinceFallbackUrl(adcode: String): String? {
+        if (adcode.length != 6 || !adcode.all { it.isDigit() } || adcode.endsWith("0000")) return null
+        return "$API_URL?adcode=${adcode.take(2)}0000"
+    }
+
+    /** 发一次请求；仅 2xx 且解析为有效实况才返回，错误响应 / 占位数据一律 null。 */
+    private fun requestFresh(url: String): FreshWeather? {
+        Log.d(TAG, "Requesting weather from: $url")
+        val body = HttpCompat.getString(url, TIMEOUT_MS, TIMEOUT_MS) ?: return null
+        Log.d(TAG, "Response: ${body.take(300)}")
+        val weather = parseWeatherResponse(body) ?: return null
+        return FreshWeather(body, weather)
+    }
     
     /**
-     * 解析天气API响应
-     * API返回格式：{"province":"北京","city":"北京城区","adcode":"110100","weather":"晴","temperature":0,...}
+     * 解析天气 API 响应。
+     *
+     * 文档要点：weather 是天气现象文本、**不是固定枚举**；weather_icon 才是图标代码
+     * （直接对应 CDN 上的 `{code}.svg` 文件名）；adcode 与部分字段可能为空。
+     * 因此优先使用 weather_icon，文本映射只作兜底。
      */
     private fun parseWeatherResponse(response: String): Weather? {
         return try {
             val json = JSONObject(response)
-            Log.d(TAG, "Parsing JSON response")
-            
-            // 检查必要字段是否存在
+            // 400 / 404 / 503 等错误响应没有 city / weather 字段
             if (!json.has("city") || !json.has("weather")) {
-                Log.e(TAG, "Missing required fields in response")
+                Log.w(TAG, "响应缺少天气字段: ${response.take(160)}")
                 return null
             }
-            
-            // 获取天气代码，用于图标映射
-            // 由于API没有返回weatherCode，我们根据weather文本映射
-            val weatherText = json.optString("weather", "未知")
-            val weatherCode = mapWeatherTextToCode(weatherText)
-            
-            // 优先使用district作为city值，如果district为空则使用city
-            val locationName = json.optString("district", "")?.takeIf { it.isNotEmpty() } ?: json.optString("city", "未知")
-            
+
+            val weatherText = json.optString("weather", "")
+            // 占位数据的稳定特征是 weather="未知"（实测北京 1101xx）。
+            // 不再依赖 report_time / humidity：文档说明这些可选字段可能合法缺失，
+            // 旧判定 (report_time 为空 && humidity==0) 有误杀正常实况的风险。
+            if (weatherText.isEmpty() || weatherText == "未知") {
+                Log.w(TAG, "收到占位天气数据（adcode=${json.optString("adcode", "")}），忽略")
+                return null
+            }
+
+            val icon = json.optString("weather_icon", "")
+            val weatherCode = icon.takeIf { it.isNotEmpty() } ?: mapWeatherTextToCode(weatherText)
+            // 文档：区县名在「自动按 IP 定位时更常见」，省级响应可能没有 district
+            val locationName = json.optString("district", "").takeIf { it.isNotEmpty() }
+                ?: json.optString("city", "未知")
+            // 文档示例 18.3 / 实测 Tokyo 11.5：用 Double，避免 optInt 截掉小数
+            val temp = json.optDouble("temperature", Double.NaN)
+            val temperature = when {
+                temp.isNaN() -> "0°C"
+                temp % 1.0 == 0.0 -> "${temp.toInt()}°C"
+                else -> "$temp°C"
+            }
+
             val weather = Weather(
                 city = locationName,
                 weather = weatherText,
-                temperature = "${json.optInt("temperature", 0)}°C",
+                temperature = temperature,
                 weatherCode = weatherCode,
                 adcode = json.optString("adcode", "")
             )
-            
-            Log.d(TAG, "Weather parsed successfully: ${weather.city} ${weather.weather} ${weather.temperature}")
+
+            Log.d(TAG, "Weather parsed successfully: ${weather.city} ${weather.weather} ${weather.temperature} (icon=$weatherCode)")
             weather
         } catch (e: Exception) {
             Log.e(TAG, "Error parsing weather response: ${e.message}", e)
@@ -178,9 +159,9 @@ class WeatherRepository(private val context: Context) {
     /**
      * 将天气文本映射到和风天气标准天气代码（用于图标显示）
      *
-     * 关键约束：返回的代码必须与 [QWeatherIconsUtil.iconMap] 使用的“和风天气标准
-     * condition code”完全一致，否则会出现“图标与实况天气不符”的问题。
-     * 例如标准中小雨=305、中雨=306、大雨=307、阵雨=300、雷阵雨=302；旧的映射把
+     * 关键约束：返回的代码必须是和风天气标准 condition code —— 也就是
+     * `https://icons.qweather.com/usage/` 所述、CDN 上 `{code}.svg` 的文件名；
+     * 否则会出现「图标与实况天气不符」。例如标准中小雨=305、中雨=306、大雨=307、阵雨=300、雷阵雨=302；旧的映射把
      * 小雨/中雨/大雨分别写成 300/301/302（标准里对应的是阵雨/强阵雨/雷阵雨），
      * 导致下雨下雪时图标全部错位，看起来“有时候图标错误”。
      */

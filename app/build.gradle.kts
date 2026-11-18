@@ -16,8 +16,13 @@ android {
         targetSdk = 32
         versionCode = 20210913
         versionName = "2021.9.13"
-        multiDexEnabled = true  // 启用 MultiDex 支持 (方法数超过 65536)
-//        testInstrumentationRunner = "android.support.test.runner.AndroidJUnitRunner"
+        // 移除 BouncyCastle / OkHttp / Gson 后方法数远低于 65536，
+        // 不再需要 MultiDex（省掉第二个 dex 和老设备上的启动安装开销）
+        ndk {
+            // 目标设备是 armeabi-v7a 电视盒子；只带这一个 ABI 可省 ~3 MB。
+            // 其它 ABI 上 Conscrypt 加载不到 .so 时会自动回退系统 TLS，不会崩溃。
+            abiFilters.add("armeabi-v7a")
+        }
     }
     buildFeatures {
         viewBinding = true
@@ -25,6 +30,7 @@ android {
     buildTypes {
         release {
             isMinifyEnabled = true
+            isShrinkResources = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
@@ -37,27 +43,17 @@ android {
 }
 
 dependencies {
-//    implementation("androidx.core:core-ktx:1.6.0")
-//    implementation("androidx.appcompat:appcompat:1.3.1")
-//    implementation("com.google.android.material:material:1.4.0")
-//    implementation("androidx.constraintlayout:constraintlayout:2.1.0")
+    // 只保留 UI / 协程 / 生命周期 + 高性能 TLS 依赖。
+    // 网络(OkHttp)、JSON(Gson)、MultiDex 已由平台 API 取代；
+    // BouncyCastle 的纯 Java TLS 由 Conscrypt(native BoringSSL) 取代。
+    // 详见 util/HttpCompat.kt。
     implementation("androidx.leanback:leanback:1.0.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.5.2")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.3.1")
-    
-    // MultiDex support for API < 21 (方法数超过 65536 时需要)
-    implementation("androidx.multidex:multidex:2.0.1")
-    
-    // OkHttp for modern HTTP/HTTPS support
-    implementation("com.squareup.okhttp3:okhttp:3.12.13") // 兼容Android 4.2的最后版本
-    
-    // BouncyCastle for modern TLS support on older Android versions (纯Java实现，无native依赖)
-    implementation("org.bouncycastle:bcprov-jdk15on:1.68") // 纯Java实现，适合system/app
-    implementation("org.bouncycastle:bctls-jdk15on:1.68") // TLS支持
-    
-    // Gson for JSON parsing
-    implementation("com.google.code.gson:gson:2.8.9")
-    
+    // 高性能 TLS：BoringSSL native JSSE，替代 BouncyCastle 的纯 Java 实现。
+    // 支持 API 9+，为 Android 4.x 提供现代 cipher suite / TLS 1.2~1.3 / SNI。
+    implementation("org.conscrypt:conscrypt-android:2.5.2")
+
 //    testImplementation("junit:junit:4.13.2")
 //    androidTestImplementation("androidx.test.ext:junit:1.1.3")
 //    androidTestImplementation("androidx.test.espresso:espresso-core:3.4.0")

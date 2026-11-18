@@ -40,6 +40,7 @@ import cf.zknb.tvlauncher.model.Weather
 import cf.zknb.tvlauncher.repository.ShortcutRepository
 import cf.zknb.tvlauncher.repository.WeatherRepository
 import cf.zknb.tvlauncher.util.QWeatherIconsUtil
+import cf.zknb.tvlauncher.util.SvgIconDrawable
 import cf.zknb.tvlauncher.util.ColorExtractor
 import cf.zknb.tvlauncher.util.BingWallpaperManager
 import kotlinx.coroutines.launch
@@ -65,6 +66,8 @@ class BrowseFragment : BrowseSupportFragment() {
         /** 设置页切换城市后置位，主页据此强制刷新，绕过 30 分钟节流 */
         private const val KEY_PENDING_WEATHER_REFRESH = "pending_weather_refresh"
         private const val KEY_ADCODE = "adcode"
+        /** 记录「上一次已为其尝试联网的 adcode」，避免无实况城市反复绕过节流 */
+        private const val KEY_LAST_ATTEMPTED_ADCODE = "last_attempted_adcode"
         private val dateFormat = SimpleDateFormat("HH:mm", Locale.getDefault())
     }
     private val viewModel: BrowseViewModel by lazy {
@@ -75,7 +78,9 @@ class BrowseFragment : BrowseSupportFragment() {
     private var currentWeather: Weather? = null
     private var settingsIcon: ImageView? = null
     private var weatherContainer: LinearLayout? = null
-    private var weatherIconView: TextView? = null
+    private var weatherIconView: ImageView? = null
+    /** 当前壁纸对比色；CDN 图标异步到达后用它着色，避免图标与文字颜色不一致 */
+    private var currentWeatherTextColor: Int = Color.WHITE
     private var weatherCityView: TextView? = null
     private var weatherInfoView: TextView? = null
     private var loadingContainer: LinearLayout? = null
@@ -115,10 +120,7 @@ class BrowseFragment : BrowseSupportFragment() {
         super.onCreate(savedInstanceState)
         headersState = HEADERS_DISABLED
         
-        // 初始化天气字体
-        QWeatherIconsUtil.init(requireContext())
-        
-        // 初始化天气仓库
+        // 初始化天气仓库（图标改为按需从 CDN 加载，不再需要初始化本地字体）
         weatherRepository = WeatherRepository(requireContext())
         
         
@@ -369,10 +371,27 @@ class BrowseFragment : BrowseSupportFragment() {
             loadingContainer?.visibility = View.GONE
             weatherContainer?.visibility = View.VISIBLE
             currentWeather?.let { weather ->
-                // 更新图标
-                val iconSpan = QWeatherIconsUtil.createIconSpan(requireContext(), weather.weatherCode)
-                weatherIconView?.text = iconSpan
-                
+                // 图标按天气代码从 CDN 拉取（内存/磁盘缓存命中时几乎零耗时）。
+                // 代码比对避免快速切城市时旧请求覆盖新图标；失败只隐藏图标，不影响天气文字。
+                val iconCode = weather.weatherCode
+                val appContext = context?.applicationContext
+                if (appContext != null) {
+                    lifecycleScope.launch {
+                        val icon = withContext(Dispatchers.IO) {
+                            QWeatherIconsUtil.loadIcon(appContext, iconCode)
+                        }
+                        if (currentWeather?.weatherCode != iconCode) return@launch
+                        val view = weatherIconView ?: return@launch
+                        if (icon != null) {
+                            icon.setIconColor(currentWeatherTextColor)
+                            view.setImageDrawable(icon)
+                        } else {
+                            view.setImageDrawable(null)
+                            Log.w("BrowseFragment", "天气图标不可用 code=$iconCode，仅显示文字")
+                        }
+                    }
+                }
+
                 // 更新城市名称
                 weatherCityView?.text = weather.city
                 
@@ -408,7 +427,9 @@ class BrowseFragment : BrowseSupportFragment() {
                 
                 // 按区域真实亮度 + 遮罩折算后的有效亮度取黑白
                 val textColor = contrastColorForScrim(x, y, container.width, container.height)
-                tintTextView(weatherIconView, textColor)
+                // CDN 图标是矢量 Drawable，直接改填充色（不再是 TextView 文字）
+                currentWeatherTextColor = textColor
+                (weatherIconView?.drawable as? SvgIconDrawable)?.setIconColor(textColor)
                 tintTextView(weatherCityView, textColor)
                 tintTextView(weatherInfoView, textColor)
                 tintTextView(loadingTextView, textColor)
@@ -489,9 +510,15 @@ class BrowseFragment : BrowseSupportFragment() {
         // 这两种情况都必须立即联网刷新，不能被下面的节流挡住。
         val pendingRefresh = weatherPrefs.getBoolean(KEY_PENDING_WEATHER_REFRESH, false)
         val configuredAdcode = weatherPrefs.getString(KEY_ADCODE, null)
+        val lastAttemptedAdcode = weatherPrefs.getString(KEY_LAST_ATTEMPTED_ADCODE, null)
         val cached = weatherRepository.loadCachedWeather(requireContext())
-        val cityChanged = cached != null && !configuredAdcode.isNullOrEmpty()
-                && cached.adcode != configuredAdcode
+        // 只有「缓存不是当前配置城市」且「该配置还没尝试联网过」才算城市切换。
+        // 旧实现仅比较缓存 adcode：市/区级 adcode 返回占位数据时不写缓存，
+        // 缓存永远停在旧城市，cityChanged 恒为 true，导致每次 onStart 都绕过
+        // 30 分钟节流重复请求（已在 Android 4.2.1 设备上实测复现）。
+        val cityChanged = !configuredAdcode.isNullOrEmpty()
+                && cached?.adcode != configuredAdcode
+                && configuredAdcode != lastAttemptedAdcode
 
         // 若城市已切换，旧缓存属于另一个城市，不要把它展示出来，等刷新后再更新
         if (cached != null && !cityChanged) {
@@ -499,9 +526,9 @@ class BrowseFragment : BrowseSupportFragment() {
             updateWeather()
         }
 
-        // 节流：Android 4.2 上 BouncyCastle 纯 Java TLS 握手在双核 A9 上非常昂贵，
-        // 旧实现每次 onStart（每次返回桌面）都发起一次，直接拖慢桌面。
-        // 半小时内复用缓存，不重复建连；但城市变化或显式 pending 时强制刷新。
+        // 节流：低端电视盒子网络慢，且天气 API 无需每次返回桌面都请求。
+        // 旧实现每次 onStart 都发起一次，直接拖慢桌面；现在半小时内复用缓存，
+        // 但城市变化或显式 pending 时强制刷新。
         val withinThrottle = now - lastFetch < WEATHER_REFRESH_INTERVAL_MS
         val mustRefresh = pendingRefresh || cityChanged
         if (withinThrottle && !mustRefresh) {
@@ -516,11 +543,12 @@ class BrowseFragment : BrowseSupportFragment() {
             showWeatherLoading()
         }
 
-        // 消费 pending 标记（cityChanged 每次实时判断，无需持久化）
-        if (pendingRefresh) {
-            weatherPrefs.edit().putBoolean(KEY_PENDING_WEATHER_REFRESH, false).apply()
-        }
-        weatherPrefs.edit().putLong(KEY_LAST_WEATHER_FETCH, now).apply()
+        // 消费 pending 标记，并记录本次已为哪个 adcode 尝试联网（供节流判定去重）
+        weatherPrefs.edit()
+            .putBoolean(KEY_PENDING_WEATHER_REFRESH, false)
+            .putLong(KEY_LAST_WEATHER_FETCH, now)
+            .putString(KEY_LAST_ATTEMPTED_ADCODE, configuredAdcode ?: "")
+            .apply()
 
         lifecycleScope.launch {
             try {
@@ -529,30 +557,39 @@ class BrowseFragment : BrowseSupportFragment() {
                 
                 var weather: cf.zknb.tvlauncher.model.Weather? = null
                 
-                // 如果启用了IP定位，直接调用天气API获取当前IP对应的天气
+                // 如果启用了IP定位，调用不带参数的天气接口由服务端按 IP 定位
                 if (useIpLocation) {
-                    Log.d("BrowseFragment", "IP定位已启用，直接通过天气接口获取...")
+                    Log.d("BrowseFragment", "IP定位已启用，通过无参天气接口定位...")
                     try {
-                        weather = weatherRepository.getWeather()
+                        // 定位专用：失败不会回退缓存，下面「用保存的城市」兜底才真正生效
+                        weather = weatherRepository.locateByIp()
                         if (weather != null) {
-                            // 保存定位结果以便后续失败时回退
-                            prefs.edit()
-                                .putString("city_name", weather.city)
-                                .putString("adcode", weather.adcode)
-                                .apply()
+                            val editor = prefs.edit().putString("city_name", weather.city)
+                            // 文档：adcode 可能为空；为空时保留已有配置，不写入空串
+                            if (weather.adcode.isNotEmpty()) editor.putString("adcode", weather.adcode)
+                            editor.apply()
                         } else {
-                            Log.w("BrowseFragment", "通过天气接口获取定位天气失败，使用保存的城市")
+                            Log.w("BrowseFragment", "IP 定位失败，回退到保存的城市")
                         }
                     } catch (e: Exception) {
-                        Log.e("BrowseFragment", "IP定位异常，使用保存的城市", e)
+                        Log.e("BrowseFragment", "IP定位异常，回退到保存的城市", e)
                     }
                 }
                 
                 // 如果IP定位失败或被禁用，使用保存的城市
                 if (weather == null) {
                     val cityId = getDefaultCityId()
-                    Log.d("BrowseFragment", "使用保存的城市ID: $cityId")
-                    weather = weatherRepository.getWeather(cityId)
+                    weather = if (cityId.isNullOrEmpty()) {
+                        // 没有配置城市时不再重复发一次 IP 定位（刚刚已失败），直接展示缓存
+                        Log.d("BrowseFragment", "无配置城市，使用本地缓存")
+                        val appCtx = requireContext().applicationContext
+                        withContext(Dispatchers.IO) {
+                            weatherRepository.loadCachedWeather(appCtx)
+                        }
+                    } else {
+                        Log.d("BrowseFragment", "使用保存的城市ID: $cityId")
+                        weatherRepository.getWeather(cityId)
+                    }
                 }
                 
                 if (weather != null) {
@@ -571,12 +608,14 @@ class BrowseFragment : BrowseSupportFragment() {
     }
     
     /**
-     * 获取默认城市ID
-     * 从SharedPreferences读取用户设置的城市，默认返回北京
+     * 获取已配置的城市 adcode；没有配置时返回 null（由调用方决定用缓存还是 IP 定位）。
+     *
+     * 旧实现硬编码默认 "110100"，而实测该 adcode 恰好返回占位数据，
+     * 会导致首次启动拿不到天气。
      */
-    private fun getDefaultCityId(): String {
+    private fun getDefaultCityId(): String? {
         val prefs = requireContext().getSharedPreferences("weather_settings", Context.MODE_PRIVATE)
-        return prefs.getString("adcode", "110100") ?: "110100" // 默认北京adcode
+        return prefs.getString("adcode", null)?.takeIf { it.isNotEmpty() }
     }
     
     /**
@@ -817,11 +856,14 @@ class BrowseFragment : BrowseSupportFragment() {
                             )
                         }
                         
-                        // 创建天气图标TextView（占两行高度）
-                        weatherIconView = TextView(requireContext()).apply {
-                            textSize = 42f  // 大图标
-                            setTextColor(Color.WHITE)
-                            gravity = Gravity.CENTER
+                        // 创建天气图标 ImageView（CDN 矢量图标，占两行高度；空内容时也占位避免布局跳动）
+                        val iconSize = (42 * density).toInt()
+                        weatherIconView = ImageView(requireContext()).apply {
+                            layoutParams = LinearLayout.LayoutParams(iconSize, iconSize)
+                            scaleType = ImageView.ScaleType.FIT_CENTER
+                            // 仅这个 42dp 的小 View 走软件绘制，避开 4.2 hwui 对
+                            // 矢量 path 的低分辨率纹理缓存（会导致图标边缘呈马赛克）
+                            setLayerType(View.LAYER_TYPE_SOFTWARE, null)
                             setPadding(0, 0, (8 * density).toInt(), 0)
                         }
                         
