@@ -4,6 +4,7 @@ import android.content.Intent
 import android.os.Bundle
 import android.util.Log
 import android.view.KeyEvent
+import android.view.WindowManager
 import android.widget.Toast
 import androidx.fragment.app.FragmentActivity
 import cf.zknb.tvlauncher.browse.BrowseFragment
@@ -25,6 +26,13 @@ class LauncherActivity : FragmentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // 桌面没有文本输入框：让窗口可接收遥控器焦点，但不成为输入法目标。
+        // Android 4.2.x 上 IMM 单例可能缓存到空 binder，焦点变化触发的 CHECK_FOCUS
+        // 会在 startInputInner() 里 NPE（见 InputMethodManager.java:1158）。
+        window.setFlags(
+            WindowManager.LayoutParams.FLAG_ALT_FOCUSABLE_IM,
+            WindowManager.LayoutParams.FLAG_ALT_FOCUSABLE_IM
+        )
         setContentView(R.layout.activity_launcher)
 
         startTvMonitorService()

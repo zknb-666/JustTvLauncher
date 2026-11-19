@@ -5,6 +5,7 @@ import android.net.Uri
 import android.os.Bundle
 import android.provider.Settings
 import android.util.Log
+import android.view.WindowManager
 import android.widget.Toast
 import androidx.fragment.app.FragmentActivity
 import cf.zknb.tvlauncher.model.Shortcut
@@ -45,7 +46,12 @@ class AppInfoActivity : FragmentActivity() {
      */
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        
+        // 应用详情页没有输入框；不要成为输入法目标。
+        window.setFlags(
+            WindowManager.LayoutParams.FLAG_ALT_FOCUSABLE_IM,
+            WindowManager.LayoutParams.FLAG_ALT_FOCUSABLE_IM
+        )
+
         try {
             setContentView(R.layout.activity_app_info)
             

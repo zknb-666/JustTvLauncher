@@ -6,6 +6,7 @@ import android.os.Bundle
 import android.util.Log
 import android.view.LayoutInflater
 import android.view.View
+import android.view.WindowManager
 import android.widget.AdapterView
 import android.widget.ArrayAdapter
 import android.widget.Spinner
@@ -291,6 +292,12 @@ class WeatherRegionSettingsFragment : GuidedStepSupportFragment() {
             .setPositiveButton("确定", null)
             .setNegativeButton("取消", null)
             .create()
+
+        // 该对话框只有 Spinner，没有文本输入；避免焦点变化走进 IME 链路。
+        dialog.window?.setFlags(
+            WindowManager.LayoutParams.FLAG_ALT_FOCUSABLE_IM,
+            WindowManager.LayoutParams.FLAG_ALT_FOCUSABLE_IM
+        )
 
         // 覆盖确定按钮的点击，加载未完成时不允许提交并阻止 Dialog 关闭
         dialog.setOnShowListener {
