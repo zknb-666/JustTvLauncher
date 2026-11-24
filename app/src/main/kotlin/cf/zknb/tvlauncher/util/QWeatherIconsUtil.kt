@@ -235,7 +235,17 @@ class SvgIconDrawable internal constructor(
             return
         }
         if (w == scaledWidth && h == scaledHeight && scaledPath != null) return
-        val matrix = Matrix().apply { setScale(w / shape.width, h / shape.height) }
+        // SVG 必须等比缩放，不能用 setScale(w / viewBoxW, h / viewBoxH)
+        // 分别缩放两个轴；View 的 padding 或非正方形测量一旦出现就会拉扁图标。
+        // 和风图标本身为 1:1，这里按短边缩放并在方形 View 内居中，保证始终 1:1。
+        val scale = minOf(w / shape.width, h / shape.height)
+        val matrix = Matrix().apply {
+            setScale(scale, scale)
+            postTranslate(
+                (w - shape.width * scale) / 2f,
+                (h - shape.height * scale) / 2f
+            )
+        }
         val combined = Path()
         for (p in shape.paths) combined.addPath(p, matrix)
         scaledPath = combined

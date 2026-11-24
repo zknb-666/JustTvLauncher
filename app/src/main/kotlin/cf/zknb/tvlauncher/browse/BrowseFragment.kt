@@ -858,13 +858,18 @@ class BrowseFragment : BrowseSupportFragment() {
                         
                         // 创建天气图标 ImageView（CDN 矢量图标，占两行高度；空内容时也占位避免布局跳动）
                         val iconSize = (42 * density).toInt()
+                        val iconSpacing = (8 * density).toInt()
                         weatherIconView = ImageView(requireContext()).apply {
-                            layoutParams = LinearLayout.LayoutParams(iconSize, iconSize)
+                            // View 本身必须是 42×42dp 正方形。间距用 margin，
+                            // 不能用右 padding，否则 42×42dp 的内容区会变成 34×42dp。
+                            layoutParams = LinearLayout.LayoutParams(iconSize, iconSize).apply {
+                                marginEnd = iconSpacing
+                                rightMargin = iconSpacing
+                            }
                             scaleType = ImageView.ScaleType.FIT_CENTER
                             // 仅这个 42dp 的小 View 走软件绘制，避开 4.2 hwui 对
                             // 矢量 path 的低分辨率纹理缓存（会导致图标边缘呈马赛克）
                             setLayerType(View.LAYER_TYPE_SOFTWARE, null)
-                            setPadding(0, 0, (8 * density).toInt(), 0)
                         }
                         
                         // 创建垂直容器放置城市和天气信息
